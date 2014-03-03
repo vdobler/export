@@ -53,7 +53,7 @@ type Field struct {
 
 //	HasValue(i int) bool // Check if a value is present
 
-// A generic string representation
+// A generic string representation of the i'th value of field f.
 func (f Field) String(i int) string {
 	val := f.Value(i)
 	if val == nil {
@@ -88,15 +88,19 @@ type Dumper interface {
 	Dump(e Extractor) error
 }
 
+// CSVDumper dumps values in CSV format
 type CSVDumper struct {
-	Writer       *csv.Writer
-	ShowHeader   bool
-	MissingValue string
+	Writer       *csv.Writer // The csv.Writer to output the data.
+	OmitHeader   bool        // OmitHeader suppresses the header line in the generated CSV.
+	MissingValue string      // MissingValue is used for missing values.
+	FloatFmt     string      // FloatFmt may be used to change the formating of floats.
+	TimeFmt      string      // TimeFmt may be used to change the formating of times.
 }
 
+// Dump dumps the fields from e to d.
 func (d CSVDumper) Dump(e Extractor) error {
 	row := make([]string, len(e.Fields))
-	if d.ShowHeader {
+	if !d.OmitHeader {
 		for i, field := range e.Fields {
 			row[i] = field.Name
 		}
@@ -107,7 +111,15 @@ func (d CSVDumper) Dump(e Extractor) error {
 			if value := field.Value(r); value == nil {
 				row[col] = d.MissingValue
 			} else {
-				row[col] = field.String(r)
+				switch {
+				case field.Type == Float && d.FloatFmt != "":
+					row[col] = fmt.Sprintf(d.FloatFmt, field.Value(r).(float64))
+				case field.Type == Time && d.TimeFmt != "":
+					row[col] = field.Value(r).(time.Time).Format(d.TimeFmt)
+				default:
+					row[col] = field.String(r)
+				}
+
 			}
 		}
 		err := d.Writer.Write(row)

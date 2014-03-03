@@ -85,8 +85,9 @@ func TestExtractor(t *testing.T) {
 
 	d := CSVDumper{
 		Writer:       csv.NewWriter(os.Stdout),
-		ShowHeader:   true,
+		OmitHeader:   false,
 		MissingValue: "NA",
+		FloatFmt:     "%.4g",
 	}
 
 	d.Dump(extractor)
