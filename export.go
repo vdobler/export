@@ -89,13 +89,13 @@ type Dumper interface {
 }
 
 type CSVDumper struct {
-	Writer       csv.Writer
+	Writer       *csv.Writer
 	ShowHeader   bool
 	MissingValue string
 }
 
 func (d CSVDumper) Dump(e Extractor) error {
-	row := make([]string, e.N)
+	row := make([]string, len(e.Fields))
 	if d.ShowHeader {
 		for i, field := range e.Fields {
 			row[i] = field.Name
@@ -157,17 +157,25 @@ func canHandle(t reflect.Type) bool {
 	return false
 }
 
+var (
+	errorInterfaceType = reflect.TypeOf((*error)(nil)).Elem()
+)
+
 func newSOMExtractor(data interface{}, fieldnames ...string) (Extractor, error) {
 	t := reflect.TypeOf(data).Elem()
 	v := reflect.ValueOf(data)
-	n := v.Len()
 	ex := Extractor{}
-	ex.N = n
+	ex.N = v.Len()
 
-	// Direkct struct fields first.
-	for index, name := range fieldnames {
-		for i := 0; i < t.NumField(); i++ {
-			f := t.Field(i)
+	for _, name := range fieldnames {
+		field := Field{
+			Type: NA,
+			Name: name,
+		}
+
+		// Fields.
+		for n := 0; n < t.NumField(); n++ {
+			f := t.Field(n)
 			if f.Name != name {
 				continue
 			}
@@ -176,99 +184,113 @@ func newSOMExtractor(data interface{}, fieldnames ...string) (Extractor, error) 
 					name, f.Type.String())
 			}
 
-			field := Field{Name: name}
 			switch f.Type.Kind() {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 				field.Type = Int
 				field.Value = func(i int) interface{} {
-					return v.Index(i).Field(index).Int()
+					return v.Index(i).Field(n).Int()
 				}
 			case reflect.String:
 				field.Type = String
 				field.Value = func(i int) interface{} {
-					return v.Index(i).Field(index).String()
+					return v.Index(i).Field(n).String()
 				}
 			case reflect.Float32, reflect.Float64:
 				field.Type = Float
 				field.Value = func(i int) interface{} {
-					return v.Index(i).Field(index).Float()
+					return v.Index(i).Field(n).Float()
 				}
 			case reflect.Struct: // Checked above for beeing time.Time
 				field.Type = Time
 				field.Value = func(i int) interface{} {
-					return v.Index(i).Field(index).Interface()
+					return v.Index(i).Field(n).Interface()
 				}
 			}
-			ex.Fields = append(ex.Fields, field)
 			break
 		}
-	}
+		if field.Type != NA {
+			ex.Fields = append(ex.Fields, field)
+			continue
+		}
 
-	/*
 		// The same for methods.
-		for i := 0; i < t.NumMethod(); i++ {
-			m := t.Method(i)
-
-			// Look for methods with signatures like "func(elemtype) [int,string,float,time]"
+		for n := 0; n < t.NumMethod(); n++ {
+			m := t.Method(n)
+			if m.Name != name {
+				continue
+			}
+			// Look for methods with signatures like
+			//   func(elemtype) [int,string,float,time]
+			// or
+			//   func(elemtype) ([int,string,float,time], error)
 			mt := m.Type
-			if mt.NumIn() != 1 || mt.NumOut() != 1 {
+			numOut := mt.NumOut()
+			if mt.NumIn() != 1 || (numOut != 1 && numOut != 2) {
 				continue
 			}
-			switch mt.Out(0).Kind() {
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			case reflect.String:
-			case reflect.Float32, reflect.Float64:
-			case reflect.Struct:
-				if !isTime(mt.Out(0)) {
-					continue
+			mayFail := false
+			if numOut == 2 && mt.Out(1).Kind() == reflect.Interface {
+				if mt.Out(1).Implements(errorInterfaceType) {
+					mayFail = true
+					println("We may fail on ", name)
 				}
-			default:
-				continue
+			}
+			if !canHandle(mt.Out(0)) {
+				return ex, fmt.Errorf("export: cannot use method %q of type %s",
+					name, mt.Out(0).String())
 			}
 
-			field := Field{
-				Data: make([]float64, n),
-				Pool: pool,
-			}
-
+			// TODO: Move mayFail code out of function closure.
 			switch mt.Out(0).Kind() {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 				field.Type = Int
-				for j := 0; j < n; j++ {
-					field.Data[j] = float64(m.Func.Call([]reflect.Value{v.Index(j)})[0].Int())
+				field.Value = func(i int) interface{} {
+					z := m.Func.Call([]reflect.Value{v.Index(i)})
+					if mayFail && z[1].Interface() != nil {
+						return nil
+					}
+					return z[0].Int()
 				}
 			case reflect.String:
 				field.Type = String
-				for j := 0; j < n; j++ {
-					s := m.Func.Call([]reflect.Value{v.Index(j)})[0].String()
-					field.Data[j] = float64(pool.Add(s))
+				field.Value = func(i int) interface{} {
+					z := m.Func.Call([]reflect.Value{v.Index(i)})
+					if mayFail && z[1].Interface() != nil {
+						return nil
+					}
+					return z[0].String()
 				}
 			case reflect.Float32, reflect.Float64:
 				field.Type = Float
-				for j := 0; j < n; j++ {
-					field.Data[j] = m.Func.Call([]reflect.Value{v.Index(j)})[0].Float()
+				field.Value = func(i int) interface{} {
+					z := m.Func.Call([]reflect.Value{v.Index(i)})
+					if mayFail && z[1].Interface() != nil {
+						return nil
+					}
+					return z[0].Float()
 				}
 			case reflect.Struct: // checked above for beeing time.Time
-				field.Type = Float
-				if n > 0 {
-					field.Origin = m.Func.Call([]reflect.Value{v.Index(0)})[0].Interface().(time.Time).Unix()
-				}
-				for j := 0; j < n; j++ {
-					t := m.Func.Call([]reflect.Value{v.Index(j)})[0].Interface().(time.Time).Unix()
-					field.Data[j] = float64(t - field.Origin)
+				field.Type = Time
+				field.Value = func(i int) interface{} {
+					z := m.Func.Call([]reflect.Value{v.Index(i)})
+					if mayFail && z[1].Interface() != nil {
+						return nil
+					}
+					return z[0].Interface()
 				}
 			default:
 				panic("Oooops")
 			}
 
-			df.Columns[m.Name] = field
-
-			// println("newSOMDataFrame: added method Name =", m.Name, "   type =", df.Type[m.Name].String())
+			if field.Type != NA {
+				ex.Fields = append(ex.Fields, field)
+				continue
+			}
 		}
 
-	*/
-	// TODO: Maybe pointer methods too?
-	// v.Addr().MethodByName()
+		// TODO: Maybe pointer methods too?
+		// v.Addr().MethodByName()
+	}
 
 	return ex, nil
 }

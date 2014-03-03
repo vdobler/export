@@ -1,9 +1,11 @@
 package export
 
 import (
+	"encoding/csv"
 	"fmt"
+	"math"
+	"os"
 	"testing"
-	// "os"
 )
 
 type Obs struct {
@@ -20,6 +22,13 @@ func (o Obs) BMI() float64 {
 
 func (o Obs) Group() int {
 	return 10*(o.Age/10) + 5
+}
+
+func (o Obs) Fancy() (int, error) {
+	if o.Height < 1.65 {
+		return 0, fmt.Errorf("too small (was %.2f)", o.Height)
+	}
+	return int(100 * math.Sqrt(o.Height-1.65)), nil
 }
 
 func (o Obs) Country() string {
@@ -67,10 +76,18 @@ var measurement = []Obs{
 }
 
 func TestExtractor(t *testing.T) {
-	extractor, err := NewExtractor(measurement, "Age", "Country", "BMI")
+	extractor, err := NewExtractor(measurement, "Age", "Origin", "Weight", "BMI", "Fancy")
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
 
 	fmt.Printf("%v\n", extractor)
+
+	d := CSVDumper{
+		Writer:       csv.NewWriter(os.Stdout),
+		ShowHeader:   true,
+		MissingValue: "NA",
+	}
+
+	d.Dump(extractor)
 }
