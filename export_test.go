@@ -40,12 +40,8 @@ func (o Obs) Country() string {
 	return o2c[o.Origin]
 }
 
-func (o Obs) Other() bool {
-	return true
-}
-
-func (o Obs) Other2(a int) int {
-	return 0
+func (o Obs) IsEU() bool {
+	return o.Origin != "ch"
 }
 
 var measurement = []Obs{
@@ -75,19 +71,31 @@ var measurement = []Obs{
 	Obs{Age: 44, Origin: "uk", Weight: 70, Height: 1.72},
 }
 
-func TestExtractor(t *testing.T) {
-	extractor, err := NewExtractor(measurement, "Age", "Origin", "Weight", "BMI", "Fancy")
+func TestCSVExtractor(t *testing.T) {
+	extractor, err := NewExtractor(measurement, "Age", "Origin", "Weight", "BMI", "Fancy", "IsEU")
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
-
-	fmt.Printf("%v\n", extractor)
 
 	d := CSVDumper{
 		Writer:       csv.NewWriter(os.Stdout),
 		OmitHeader:   false,
 		MissingValue: "NA",
 		FloatFmt:     "%.4g",
+	}
+
+	d.Dump(extractor)
+}
+
+func TestRVecExtractor(t *testing.T) {
+	extractor, err := NewExtractor(measurement, "Age", "Origin", "BMI", "Fancy", "IsEU")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+
+	d := RVecDumper{
+		Writer: os.Stdout,
+		Name:   "body.data",
 	}
 
 	d.Dump(extractor)

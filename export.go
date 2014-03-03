@@ -4,6 +4,7 @@ import (
 	"encoding"
 	"encoding/csv"
 	"fmt"
+	"io"
 	"math"
 	"reflect"
 	"time"
@@ -30,6 +31,7 @@ type FieldType uint
 
 const (
 	NA FieldType = iota
+	Bool
 	Int
 	Float
 	String
@@ -38,7 +40,7 @@ const (
 
 // String representation of ft.
 func (ft FieldType) String() string {
-	return []string{"NA", "Int", "Float", "String", "Time"}[ft]
+	return []string{"NA", "Bool", "Int", "Float", "String", "Time"}[ft]
 }
 
 // -------------------------------------------------------------------------
@@ -60,6 +62,11 @@ func (f Field) String(i int) string {
 		return "<nil>"
 	}
 	switch f.Type {
+	case Bool:
+		if val.(bool) {
+			return "true"
+		}
+		return "false"
 	case Int:
 		return fmt.Sprintf("%d", val.(int64))
 	case Float:
@@ -131,6 +138,86 @@ func (d CSVDumper) Dump(e Extractor) error {
 	return d.Writer.Error()
 }
 
+// RVecDumper dumps as a R vectors.
+type RVecDumper struct {
+	Writer   io.Writer
+	FloatFmt string // FloatFmt may be used to change the formating of floats.
+	TimeFmt  string // TimeFmt may be used to change the formating of times.
+
+	// If Name is nonempty a data frame named Name consisting of all
+	// fields is constructed too.
+	Name string
+}
+
+// Dump dumps the fields from e to d.
+func (d RVecDumper) Dump(e Extractor) error {
+	ff := "%.6g"
+	tf := time.RFC3339
+	if d.FloatFmt != "" {
+		ff = d.FloatFmt
+	}
+	if d.TimeFmt != "" {
+		tf = d.TimeFmt
+	}
+
+	all := ""
+	for f, field := range e.Fields {
+		if _, err := fmt.Fprintf(d.Writer, "%s <- c(", field.Name); err != nil {
+			return err
+		}
+		for r := 0; r < e.N; r++ {
+			s := ""
+			if value := field.Value(r); value == nil {
+				s = "NA"
+			} else {
+				switch field.Type {
+				case Bool:
+					if field.Value(r).(bool) {
+						s = "TRUE"
+					} else {
+						s = "FALSE"
+					}
+				case Int:
+					s = fmt.Sprintf("%d", field.Value(r).(int64))
+				case Float:
+					s = fmt.Sprintf(ff, field.Value(r).(float64))
+				case String:
+					s = fmt.Sprintf("%q", field.Value(r).(string))
+				case Time:
+					s = fmt.Sprintf(tf, field.Value(r).(time.Time))
+				default:
+					panic("Oooops")
+				}
+
+			}
+			if r < e.N-1 {
+				if r%10 == 9 {
+					s += ",\n"
+				} else {
+					s += ", "
+				}
+			}
+			if _, err := fmt.Fprintf(d.Writer, "%s", s); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintf(d.Writer, ")\n"); err != nil {
+			return err
+		}
+		if f > 0 {
+			all += ", "
+		}
+		all += field.Name
+	}
+
+	if d.Name != "" {
+		if _, err := fmt.Fprintf(d.Writer, "%s <- data.frame(%s)\n", d.Name, all); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // -------------------------------------------------------------------------
 // Extractor
 
@@ -157,6 +244,8 @@ func NewExtractor(data interface{}, fieldnames ...string) (Extractor, error) {
 
 func canHandle(t reflect.Type) bool {
 	switch t.Kind() {
+	case reflect.Bool:
+		return true
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return true
 	case reflect.String:
@@ -197,6 +286,11 @@ func newSOMExtractor(data interface{}, fieldnames ...string) (Extractor, error) 
 			}
 
 			switch f.Type.Kind() {
+			case reflect.Bool:
+				field.Type = Bool
+				field.Value = func(i int) interface{} {
+					return v.Index(i).Field(n).Bool()
+				}
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 				field.Type = Int
 				field.Value = func(i int) interface{} {
@@ -244,7 +338,6 @@ func newSOMExtractor(data interface{}, fieldnames ...string) (Extractor, error) 
 			if numOut == 2 && mt.Out(1).Kind() == reflect.Interface {
 				if mt.Out(1).Implements(errorInterfaceType) {
 					mayFail = true
-					println("We may fail on ", name)
 				}
 			}
 			if !canHandle(mt.Out(0)) {
@@ -254,6 +347,15 @@ func newSOMExtractor(data interface{}, fieldnames ...string) (Extractor, error) 
 
 			// TODO: Move mayFail code out of function closure.
 			switch mt.Out(0).Kind() {
+			case reflect.Bool:
+				field.Type = Bool
+				field.Value = func(i int) interface{} {
+					z := m.Func.Call([]reflect.Value{v.Index(i)})
+					if mayFail && z[1].Interface() != nil {
+						return nil
+					}
+					return z[0].Bool()
+				}
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 				field.Type = Int
 				field.Value = func(i int) interface{} {
