@@ -1,7 +1,6 @@
 package export
 
 import (
-	"encoding"
 	"encoding/csv"
 	"fmt"
 	"io"
@@ -44,6 +43,49 @@ func (ft FieldType) String() string {
 }
 
 // -------------------------------------------------------------------------
+// Formating Options
+
+// Format describes how different fields types will be formated
+type Format struct {
+	True, False string // String values of boolean true and false.
+	IntFmt      string // Package fmt style verb for int64 printing.
+	FloatFmt    string // Package fmt style verb for float64 printing.
+	StringFmt   string // Package fmt style verb for string printing.
+	TimeFmt     string // A package time layout string.
+
+	// TimeLoc is the location in which times are presented.
+	// If a nil TimeLoc is used the times are presented in their
+	// original location.
+	TimeLoc *time.Location
+
+	NA string // Representation of a missing value.
+}
+
+// DefaultFormat are the default formating options.
+var DefaultFormat = Format{
+	True:      "true",
+	False:     "false",
+	IntFmt:    "%d",
+	FloatFmt:  "%.5g",
+	StringFmt: "%s",
+	TimeFmt:   "2006-01-02T15:04:05.999",
+	TimeLoc:   time.Local,
+	NA:        "",
+}
+
+// RFormat is a useful format for dumping stuff you want to read into R.
+var RFormat = Format{
+	True:      "TRUE",
+	False:     "FALSE",
+	IntFmt:    "%d",
+	FloatFmt:  "%.6g",
+	StringFmt: "%s",
+	TimeFmt:   "2006-01-02 15:04:05",
+	TimeLoc:   time.Local,
+	NA:        "NA",
+}
+
+// -------------------------------------------------------------------------
 // Field
 
 // Field represents a column in a data frame.
@@ -55,57 +97,50 @@ type Field struct {
 
 //	HasValue(i int) bool // Check if a value is present
 
-// A generic string representation of the i'th value of field f.
-func (f Field) String(i int) string {
+// Print the i'th entry of f according to the given format.
+func (f Field) Print(format Format, i int) string {
 	val := f.Value(i)
 	if val == nil {
-		return "<nil>"
+		return format.NA
 	}
 	switch f.Type {
 	case Bool:
 		if val.(bool) {
-			return "true"
+			return format.True
 		}
-		return "false"
+		return format.False
 	case Int:
-		return fmt.Sprintf("%d", val.(int64))
+		return fmt.Sprintf(format.IntFmt, val.(int64))
 	case Float:
-		return fmt.Sprintf("%g", val.(float64))
+		return fmt.Sprintf(format.FloatFmt, val.(float64))
 	case String:
-		return val.(string)
+		return fmt.Sprintf(format.StringFmt, val.(string))
 	case Time:
-		return val.(time.Time).Format(time.RFC3339)
-	}
-
-	if tm, ok := val.(encoding.TextMarshaler); ok {
-		if text, err := tm.MarshalText(); err == nil {
-			return string(text)
-		} else {
-			return fmt.Sprintf("Ooops %s", err)
+		t := val.(time.Time)
+		if format.TimeLoc != nil {
+			t = t.In(format.TimeLoc)
 		}
+		return t.Format(format.TimeFmt)
 	}
 
-	return fmt.Sprintf("Ooops: %s %v", f.Type.String(), val)
+	return fmt.Sprintf("Ooops: %v", val)
 }
 
 // -------------------------------------------------------------------------
 // Dumper
 
 type Dumper interface {
-	Dump(e Extractor) error
+	Dump(e Extractor, format Format) error
 }
 
 // CSVDumper dumps values in CSV format
 type CSVDumper struct {
-	Writer       *csv.Writer // The csv.Writer to output the data.
-	OmitHeader   bool        // OmitHeader suppresses the header line in the generated CSV.
-	MissingValue string      // MissingValue is used for missing values.
-	FloatFmt     string      // FloatFmt may be used to change the formating of floats.
-	TimeFmt      string      // TimeFmt may be used to change the formating of times.
+	Writer     *csv.Writer // The csv.Writer to output the data.
+	OmitHeader bool        // OmitHeader suppresses the header line in the generated CSV.
 }
 
 // Dump dumps the fields from e to d.
-func (d CSVDumper) Dump(e Extractor) error {
+func (d CSVDumper) Dump(e Extractor, format Format) error {
 	row := make([]string, len(e.Fields))
 	if !d.OmitHeader {
 		for i, field := range e.Fields {
@@ -115,19 +150,7 @@ func (d CSVDumper) Dump(e Extractor) error {
 	}
 	for r := 0; r < e.N; r++ {
 		for col, field := range e.Fields {
-			if value := field.Value(r); value == nil {
-				row[col] = d.MissingValue
-			} else {
-				switch {
-				case field.Type == Float && d.FloatFmt != "":
-					row[col] = fmt.Sprintf(d.FloatFmt, field.Value(r).(float64))
-				case field.Type == Time && d.TimeFmt != "":
-					row[col] = field.Value(r).(time.Time).Format(d.TimeFmt)
-				default:
-					row[col] = field.String(r)
-				}
-
-			}
+			row[col] = field.Print(format, r)
 		}
 		err := d.Writer.Write(row)
 		if err != nil {
@@ -150,46 +173,14 @@ type RVecDumper struct {
 }
 
 // Dump dumps the fields from e to d.
-func (d RVecDumper) Dump(e Extractor) error {
-	ff := "%.6g"
-	tf := time.RFC3339
-	if d.FloatFmt != "" {
-		ff = d.FloatFmt
-	}
-	if d.TimeFmt != "" {
-		tf = d.TimeFmt
-	}
-
+func (d RVecDumper) Dump(e Extractor, format Format) error {
 	all := ""
 	for f, field := range e.Fields {
 		if _, err := fmt.Fprintf(d.Writer, "%s <- c(", field.Name); err != nil {
 			return err
 		}
 		for r := 0; r < e.N; r++ {
-			s := ""
-			if value := field.Value(r); value == nil {
-				s = "NA"
-			} else {
-				switch field.Type {
-				case Bool:
-					if field.Value(r).(bool) {
-						s = "TRUE"
-					} else {
-						s = "FALSE"
-					}
-				case Int:
-					s = fmt.Sprintf("%d", field.Value(r).(int64))
-				case Float:
-					s = fmt.Sprintf(ff, field.Value(r).(float64))
-				case String:
-					s = fmt.Sprintf("%q", field.Value(r).(string))
-				case Time:
-					s = fmt.Sprintf(tf, field.Value(r).(time.Time))
-				default:
-					panic("Oooops")
-				}
-
-			}
+			s := field.Print(format, r)
 			if r < e.N-1 {
 				if r%10 == 9 {
 					s += ",\n"

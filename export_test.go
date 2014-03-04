@@ -80,13 +80,11 @@ func TestCSVExtractor(t *testing.T) {
 	}
 
 	d := CSVDumper{
-		Writer:       csv.NewWriter(os.Stdout),
-		OmitHeader:   false,
-		MissingValue: "NA",
-		FloatFmt:     "%.4g",
+		Writer:     csv.NewWriter(os.Stdout),
+		OmitHeader: false,
 	}
 
-	d.Dump(extractor)
+	d.Dump(extractor, DefaultFormat)
 }
 
 func TestRVecExtractor(t *testing.T) {
@@ -100,7 +98,7 @@ func TestRVecExtractor(t *testing.T) {
 		Name:   "body.data",
 	}
 
-	d.Dump(extractor)
+	d.Dump(extractor, RFormat)
 }
 
 var someError = errors.New("some error")
