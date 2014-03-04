@@ -281,8 +281,7 @@ func newSOMExtractor(data interface{}, fieldnames ...string) (Extractor, error) 
 				continue
 			}
 			if !canHandle(f.Type) {
-				return ex, fmt.Errorf("export: cannot extract field %q of type %s",
-					name, f.Type.String())
+				return ex, fmt.Errorf("export: cannot usefield %q", name)
 			}
 
 			switch f.Type.Kind() {
@@ -320,6 +319,8 @@ func newSOMExtractor(data interface{}, fieldnames ...string) (Extractor, error) 
 		}
 
 		// The same for methods.
+		// TODO: As n is not used in the field value closures a simple
+		// MethodByName would be much nicer here.
 		for n := 0; n < t.NumMethod(); n++ {
 			m := t.Method(n)
 			if m.Name != name {
@@ -331,18 +332,18 @@ func newSOMExtractor(data interface{}, fieldnames ...string) (Extractor, error) 
 			//   func(elemtype) ([int,string,float,time], error)
 			mt := m.Type
 			numOut := mt.NumOut()
-			if mt.NumIn() != 1 || (numOut != 1 && numOut != 2) {
-				continue
+			if mt.NumIn() != 1 || (numOut != 1 && numOut != 2) ||
+				!canHandle(mt.Out(0)) {
+				return ex, fmt.Errorf("export: cannot use method %q", name)
 			}
 			mayFail := false
-			if numOut == 2 && mt.Out(1).Kind() == reflect.Interface {
-				if mt.Out(1).Implements(errorInterfaceType) {
+			if numOut == 2 {
+				if mt.Out(1).Kind() == reflect.Interface &&
+					mt.Out(1).Implements(errorInterfaceType) {
 					mayFail = true
+				} else {
+					return ex, fmt.Errorf("export: cannot use method %q", name)
 				}
-			}
-			if !canHandle(mt.Out(0)) {
-				return ex, fmt.Errorf("export: cannot use method %q of type %s",
-					name, mt.Out(0).String())
 			}
 
 			// TODO: Move mayFail code out of function closure.
@@ -396,11 +397,14 @@ func newSOMExtractor(data interface{}, fieldnames ...string) (Extractor, error) 
 				panic("Oooops")
 			}
 
-			if field.Type != NA {
-				ex.Fields = append(ex.Fields, field)
-				continue
-			}
+			break
 		}
+		if field.Type != NA {
+			ex.Fields = append(ex.Fields, field)
+			continue
+		}
+
+		return ex, fmt.Errorf("export: no such field or method %q", name)
 
 		// TODO: Maybe pointer methods too?
 		// v.Addr().MethodByName()
