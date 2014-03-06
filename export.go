@@ -10,12 +10,12 @@ import (
 	"time"
 )
 
-// Interplay Extractor-Accessor-Formatter-Dumper
-// Extractor constructs a list of Accessors
-// Dumper writes rows to output.
-// The output format depends basically on the used Dumper, i.e. only the
-// Dumper knows how to format the values. So no formatter is needed.
-// But it would be nice if Accessors could help here.
+// New idea: Register a type first. This sets an internal description
+// of the fields, their types, etc. This step may fail, e.g. if unknown
+// fields are used.
+// Then bind an Extractor to any such type. This process constructs
+// the actual closures to get the values and doesn't fail. ANd uses
+// the actual number of elements.
 
 var m = math.Floor
 
@@ -94,9 +94,12 @@ type Field struct {
 	Name  string                  // The name of the field
 	Type  FieldType               // The type of the field
 	Value func(i int) interface{} // The value, maybe nil
-}
 
-//	HasValue(i int) bool // Check if a value is present
+	MayFail bool
+
+	fieldNo int           // >= 0 ==> a field; <0 ==> a method
+	mfunc   reflect.Value // the function of the method if fieldNo < 0
+}
 
 // Print the i'th entry of f according to the given format.
 func (f Field) Print(format Format, i int) string {
@@ -141,7 +144,7 @@ type CSVDumper struct {
 }
 
 // Dump dumps the fields from e to d.
-func (d CSVDumper) Dump(e Extractor, format Format) error {
+func (d CSVDumper) Dump(e *Extractor, format Format) error {
 	row := make([]string, len(e.Fields))
 	if !d.OmitHeader {
 		for i, field := range e.Fields {
@@ -168,7 +171,7 @@ type TabDumper struct {
 }
 
 // Dump dumps the fields from e to d.
-func (d TabDumper) Dump(e Extractor, format Format) error {
+func (d TabDumper) Dump(e *Extractor, format Format) error {
 	w := new(tabwriter.Writer)
 	w.Init(d.Writer, 1, 8, 1, ' ', d.Flags)
 	for i, field := range e.Fields {
@@ -203,7 +206,7 @@ type RVecDumper struct {
 }
 
 // Dump dumps the fields from e to d.
-func (d RVecDumper) Dump(e Extractor, format Format) error {
+func (d RVecDumper) Dump(e *Extractor, format Format) error {
 	all := ""
 	for f, field := range e.Fields {
 		if _, err := fmt.Fprintf(d.Writer, "%s <- c(", field.Name); err != nil {
@@ -243,95 +246,199 @@ func (d RVecDumper) Dump(e Extractor, format Format) error {
 // Extractor
 
 type Extractor struct {
-	// N is the number of elements/rows/measurements.
-	N int
+	N int // N is the numer of elements in the currently bound data.
 
 	// Field contains all the fields, i.e. the columns to extract.
 	Fields []Field
+
+	som   bool          // true for slice-of-measurement, false for collection-of-slices
+	value reflect.Value // the current binding
+	typ   reflect.Type
 }
 
 // NewExtractor returns an extractor for the given fieldnames of data.
 // The order of fieldnames determines the columns....
-func NewExtractor(data interface{}, fieldnames ...string) (Extractor, error) {
+func NewExtractor(data interface{}, fieldnames ...string) (*Extractor, error) {
 	t := reflect.TypeOf(data)
 	switch t.Kind() {
 	case reflect.Slice:
-		return newSOMExtractor(data, fieldnames...)
+		ex, err := newSOMExtractor(data, fieldnames...)
+		if err != nil {
+			return ex, err
+		}
+		ex.bindSOM(data)
+		return ex, nil
 	case reflect.Struct:
 		panic("COS data frame not implemented")
 	}
-	return Extractor{}, fmt.Errorf("Cannot build Extrator for %s", t.String())
+	return &Extractor{}, fmt.Errorf("Cannot build Extrator for %s", t.String())
 }
 
-func canHandle(t reflect.Type) bool {
+// Bind (re)binds e to data which must be of the same type as data used
+// during constructing e.
+func (e *Extractor) Bind(data interface{}) {
+	t := reflect.TypeOf(data).Elem()
+	if t != e.typ {
+		panic(fmt.Sprintf("Cannot bind extractor for %s to data of type %s", e.typ, t))
+	}
+	if e.som {
+		e.bindSOM(data)
+	} else {
+		panic("COS data frame not implemented")
+	}
+}
+
+func (e *Extractor) bindSOM(data interface{}) {
+	v := reflect.ValueOf(data)
+	e.value = v
+
+	for fn, field := range e.Fields {
+		n := field.fieldNo
+		f := field.mfunc
+		if n >= 0 {
+			// Plain field access
+			switch field.Type {
+			case Bool:
+				e.Fields[fn].Value = func(i int) interface{} {
+					return v.Index(i).Field(n).Bool()
+				}
+			case Int:
+				e.Fields[fn].Value = func(i int) interface{} {
+					return v.Index(i).Field(n).Int()
+				}
+			case Float:
+				e.Fields[fn].Value = func(i int) interface{} {
+					return v.Index(i).Field(n).Float()
+				}
+			case String:
+				e.Fields[fn].Value = func(i int) interface{} {
+					return v.Index(i).Field(n).String()
+				}
+			case Time:
+				e.Fields[fn].Value = func(i int) interface{} {
+					return v.Index(i).Field(n).Interface()
+				}
+			}
+		} else if field.MayFail {
+			// Method access with possible failure
+			switch field.Type {
+			case Bool:
+				e.Fields[fn].Value = func(i int) interface{} {
+					z := f.Call([]reflect.Value{v.Index(i)})
+					if z[1].Interface() != nil {
+						return nil
+					}
+					return z[0].Bool()
+				}
+			case Int:
+				e.Fields[fn].Value = func(i int) interface{} {
+					z := f.Call([]reflect.Value{v.Index(i)})
+					if z[1].Interface() != nil {
+						return nil
+					}
+					return z[0].Int()
+				}
+			case Float:
+				e.Fields[fn].Value = func(i int) interface{} {
+					z := f.Call([]reflect.Value{v.Index(i)})
+					if z[1].Interface() != nil {
+						return nil
+					}
+					return z[0].Float()
+				}
+			case String:
+				e.Fields[fn].Value = func(i int) interface{} {
+					z := f.Call([]reflect.Value{v.Index(i)})
+					if z[1].Interface() != nil {
+						return nil
+					}
+					return z[0].String()
+				}
+			case Time:
+				e.Fields[fn].Value = func(i int) interface{} {
+					z := f.Call([]reflect.Value{v.Index(i)})
+					if z[1].Interface() != nil {
+						return nil
+					}
+					return z[0].Interface()
+				}
+			}
+		} else {
+			// Method access without failure
+			switch field.Type {
+			case Bool:
+				e.Fields[fn].Value = func(i int) interface{} {
+					return f.Call([]reflect.Value{v.Index(i)})[0].Bool()
+				}
+			case Int:
+				e.Fields[fn].Value = func(i int) interface{} {
+					return f.Call([]reflect.Value{v.Index(i)})[0].Int()
+				}
+			case Float:
+				e.Fields[fn].Value = func(i int) interface{} {
+					return f.Call([]reflect.Value{v.Index(i)})[0].Float()
+				}
+			case String:
+				e.Fields[fn].Value = func(i int) interface{} {
+					return f.Call([]reflect.Value{v.Index(i)})[0].String()
+				}
+			case Time:
+				e.Fields[fn].Value = func(i int) interface{} {
+					return f.Call([]reflect.Value{v.Index(i)})[0].Interface()
+				}
+			}
+		}
+	}
+}
+
+func superType(t reflect.Type) FieldType {
 	switch t.Kind() {
 	case reflect.Bool:
-		return true
+		return Bool
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return true
+		return Int
 	case reflect.String:
-		return true
+		return String
 	case reflect.Float32, reflect.Float64:
-		return true
+		return Float
 	case reflect.Struct:
-		return isTime(t)
+		if isTime(t) {
+			return Time
+		}
 	}
-	return false
+	return NA
 }
 
 var (
 	errorInterfaceType = reflect.TypeOf((*error)(nil)).Elem()
 )
 
-func newSOMExtractor(data interface{}, fieldnames ...string) (Extractor, error) {
+func newSOMExtractor(data interface{}, fieldnames ...string) (*Extractor, error) {
 	t := reflect.TypeOf(data).Elem()
 	v := reflect.ValueOf(data)
 	ex := Extractor{}
 	ex.N = v.Len()
+	ex.value = v
+	ex.typ = t
 
 	for _, name := range fieldnames {
 		field := Field{
 			Type: NA,
 			Name: name,
 		}
-
 		// Fields.
 		for n := 0; n < t.NumField(); n++ {
 			f := t.Field(n)
 			if f.Name != name {
 				continue
 			}
-			if !canHandle(f.Type) {
-				return ex, fmt.Errorf("export: cannot usefield %q", name)
+			st := superType(f.Type)
+			if st == NA {
+				return &ex, fmt.Errorf("export: cannot use field %q", name)
 			}
-
-			switch f.Type.Kind() {
-			case reflect.Bool:
-				field.Type = Bool
-				field.Value = func(i int) interface{} {
-					return v.Index(i).Field(n).Bool()
-				}
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				field.Type = Int
-				field.Value = func(i int) interface{} {
-					return v.Index(i).Field(n).Int()
-				}
-			case reflect.String:
-				field.Type = String
-				field.Value = func(i int) interface{} {
-					return v.Index(i).Field(n).String()
-				}
-			case reflect.Float32, reflect.Float64:
-				field.Type = Float
-				field.Value = func(i int) interface{} {
-					return v.Index(i).Field(n).Float()
-				}
-			case reflect.Struct: // Checked above for beeing time.Time
-				field.Type = Time
-				field.Value = func(i int) interface{} {
-					return v.Index(i).Field(n).Interface()
-				}
-			}
+			field.MayFail = false
+			field.fieldNo = n
+			field.Type = st
 			break
 		}
 		if field.Type != NA {
@@ -353,9 +460,9 @@ func newSOMExtractor(data interface{}, fieldnames ...string) (Extractor, error) 
 			//   func(elemtype) ([int,string,float,time], error)
 			mt := m.Type
 			numOut := mt.NumOut()
-			if mt.NumIn() != 1 || (numOut != 1 && numOut != 2) ||
-				!canHandle(mt.Out(0)) {
-				return ex, fmt.Errorf("export: cannot use method %q", name)
+			st := superType(mt.Out(0))
+			if mt.NumIn() != 1 || (numOut != 1 && numOut != 2) || st == NA {
+				return &ex, fmt.Errorf("export: cannot use method %q", name)
 			}
 			mayFail := false
 			if numOut == 2 {
@@ -363,61 +470,13 @@ func newSOMExtractor(data interface{}, fieldnames ...string) (Extractor, error) 
 					mt.Out(1).Implements(errorInterfaceType) {
 					mayFail = true
 				} else {
-					return ex, fmt.Errorf("export: cannot use method %q", name)
+					return &ex, fmt.Errorf("export: cannot use method %q", name)
 				}
 			}
-
-			// TODO: Move mayFail code out of function closure.
-			switch mt.Out(0).Kind() {
-			case reflect.Bool:
-				field.Type = Bool
-				field.Value = func(i int) interface{} {
-					z := m.Func.Call([]reflect.Value{v.Index(i)})
-					if mayFail && z[1].Interface() != nil {
-						return nil
-					}
-					return z[0].Bool()
-				}
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				field.Type = Int
-				field.Value = func(i int) interface{} {
-					z := m.Func.Call([]reflect.Value{v.Index(i)})
-					if mayFail && z[1].Interface() != nil {
-						return nil
-					}
-					return z[0].Int()
-				}
-			case reflect.String:
-				field.Type = String
-				field.Value = func(i int) interface{} {
-					z := m.Func.Call([]reflect.Value{v.Index(i)})
-					if mayFail && z[1].Interface() != nil {
-						return nil
-					}
-					return z[0].String()
-				}
-			case reflect.Float32, reflect.Float64:
-				field.Type = Float
-				field.Value = func(i int) interface{} {
-					z := m.Func.Call([]reflect.Value{v.Index(i)})
-					if mayFail && z[1].Interface() != nil {
-						return nil
-					}
-					return z[0].Float()
-				}
-			case reflect.Struct: // checked above for beeing time.Time
-				field.Type = Time
-				field.Value = func(i int) interface{} {
-					z := m.Func.Call([]reflect.Value{v.Index(i)})
-					if mayFail && z[1].Interface() != nil {
-						return nil
-					}
-					return z[0].Interface()
-				}
-			default:
-				panic("Oooops")
-			}
-
+			field.MayFail = mayFail
+			field.fieldNo = -1
+			field.mfunc = m.Func
+			field.Type = st
 			break
 		}
 		if field.Type != NA {
@@ -425,11 +484,11 @@ func newSOMExtractor(data interface{}, fieldnames ...string) (Extractor, error) 
 			continue
 		}
 
-		return ex, fmt.Errorf("export: no such field or method %q", name)
+		return &ex, fmt.Errorf("export: no such field or method %q", name)
 
 		// TODO: Maybe pointer methods too?
 		// v.Addr().MethodByName()
 	}
 
-	return ex, nil
+	return &ex, nil
 }
