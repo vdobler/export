@@ -187,36 +187,36 @@ func TestExtractor(t *testing.T) {
 
 	// Fields are in order and have proper type.
 	for i, name := range fieldNames {
-		field := extractor.Fields[i]
+		field := extractor.Columns[i]
 		if field.Name != name {
-			t.Errorf("Field %d, got name %s, want %s", i, field.Name, name)
+			t.Errorf("Column %d, got name %s, want %s", i, field.Name, name)
 		}
 		ft := field.Type.String()
 		if ft[0] != name[0] {
-			t.Errorf("Field %d, got type %s, want '%s'", i, ft, name)
+			t.Errorf("Column %d, got type %s, want '%s'", i, ft, name)
 		}
 	}
 
 	// Check for proper NA handling.
 	for i := 10; i < 15; i++ {
-		val := extractor.Fields[i].Value(0)
-		na := extractor.Fields[i].Value(1)
+		val := extractor.Columns[i].Value(0)
+		na := extractor.Columns[i].Value(1)
 		if val == nil {
-			t.Errorf("Field %s unexpected nil", fieldNames[i])
+			t.Errorf("Column %s unexpected nil", fieldNames[i])
 		}
 		if na != nil {
-			t.Errorf("Field %s unexpected non nil, got %v", fieldNames[i], na)
+			t.Errorf("Column %s unexpected non nil, got %v", fieldNames[i], na)
 		}
 	}
 
 	// Check values.
 	for i, s := range ss {
 		// Booleans
-		bfv := extractor.Fields[0].Value(i).(bool)
-		bmv := extractor.Fields[5].Value(i).(bool)
+		bfv := extractor.Columns[0].Value(i).(bool)
+		bmv := extractor.Columns[5].Value(i).(bool)
 		bemv := s.B
 		if i%2 == 0 {
-			bemv = extractor.Fields[10].Value(i).(bool)
+			bemv = extractor.Columns[10].Value(i).(bool)
 		}
 		if bfv != s.B || bmv != s.B || bemv != s.B {
 			t.Errorf("Bool %d: Got field=%t method=%t errmethod=%t, want %t",
@@ -224,11 +224,11 @@ func TestExtractor(t *testing.T) {
 		}
 
 		// Integers
-		ifv := extractor.Fields[1].Value(i).(int64)
-		imv := extractor.Fields[6].Value(i).(int64)
+		ifv := extractor.Columns[1].Value(i).(int64)
+		imv := extractor.Columns[6].Value(i).(int64)
 		iemv := int64(s.I)
 		if i%2 == 0 {
-			iemv = extractor.Fields[11].Value(i).(int64)
+			iemv = extractor.Columns[11].Value(i).(int64)
 		}
 		if ifv != int64(s.I) || imv != int64(s.I) || iemv != int64(s.I) {
 			t.Errorf("Int %d: Got field=%d method=%d errmethod=%d, want %d",
@@ -236,11 +236,11 @@ func TestExtractor(t *testing.T) {
 		}
 
 		// Floats
-		ffv := extractor.Fields[2].Value(i).(float64)
-		fmv := extractor.Fields[7].Value(i).(float64)
+		ffv := extractor.Columns[2].Value(i).(float64)
+		fmv := extractor.Columns[7].Value(i).(float64)
 		femv := s.F
 		if i%2 == 0 {
-			femv = extractor.Fields[12].Value(i).(float64)
+			femv = extractor.Columns[12].Value(i).(float64)
 		}
 		if ffv != s.F || fmv != s.F || femv != s.F {
 			t.Errorf("Float %d: Got field=%g method=%g errmethod=%g, want %g",
@@ -248,11 +248,11 @@ func TestExtractor(t *testing.T) {
 		}
 
 		// Strings
-		sfv := extractor.Fields[3].Value(i).(string)
-		smv := extractor.Fields[8].Value(i).(string)
+		sfv := extractor.Columns[3].Value(i).(string)
+		smv := extractor.Columns[8].Value(i).(string)
 		semv := s.S
 		if i%2 == 0 {
-			semv = extractor.Fields[13].Value(i).(string)
+			semv = extractor.Columns[13].Value(i).(string)
 		}
 		if sfv != s.S || smv != s.S || semv != s.S {
 			t.Errorf("String %d: Got field=%s method=%s errmethod=%s, want %s",
@@ -260,11 +260,11 @@ func TestExtractor(t *testing.T) {
 		}
 
 		// Times
-		tfv := extractor.Fields[4].Value(i).(time.Time)
-		tmv := extractor.Fields[9].Value(i).(time.Time)
+		tfv := extractor.Columns[4].Value(i).(time.Time)
+		tmv := extractor.Columns[9].Value(i).(time.Time)
 		temv := s.T
 		if i%2 == 0 {
-			temv = extractor.Fields[14].Value(i).(time.Time)
+			temv = extractor.Columns[14].Value(i).(time.Time)
 		}
 		if !tfv.Equal(s.T) || !tmv.Equal(s.T) || !temv.Equal(s.T) {
 			t.Errorf("Time %d: Got field=%s method=%s errmethod=%s, want %s",
@@ -274,7 +274,7 @@ func TestExtractor(t *testing.T) {
 
 }
 
-func TestBadField(t *testing.T) {
+func TestBadColumn(t *testing.T) {
 	for i, name := range []string{"Unexisting", "E", "EM", "EME", "ExtraArg", "WrongReturn"} {
 		_, err := NewExtractor(ss, name)
 		if err == nil {
@@ -294,4 +294,31 @@ func TestBind(t *testing.T) {
 	if extractor.N != 5 {
 		t.Errorf("Expected length 5 after rebinding, got %d", extractor.N)
 	}
+}
+
+func TestPointerFields(t *testing.T) {
+	type P struct{ A *int }
+	i, j := 1, 2
+	data := []P{
+		P{A: &i}, P{A: nil}, P{A: &j},
+	}
+	extractor, err := NewExtractor(data, "A")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+	TabDumper{Writer: os.Stdout}.Dump(extractor, RFormat)
+}
+
+func TestSliceOfPointers(t *testing.T) {
+	data := []*S{
+		&S{true, 23, 45.67, "Hello World!", time1, nil},
+		&S{false, 9, 8.76, "Short", time2, nil},
+	}
+
+	extractor, err := NewExtractor(data, "B", "I", "F", "S", "T")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+
+	TabDumper{Writer: os.Stdout}.Dump(extractor, RFormat)
 }
