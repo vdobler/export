@@ -50,11 +50,11 @@ func isTime(x reflect.Type) bool {
 // -------------------------------------------------------------------------
 // Fields
 
-// FieldType represents the basisc type of a field.
-type FieldType uint
+// Type represents the basisc type of a field.
+type Type uint
 
 const (
-	NA FieldType = iota
+	NA Type = iota
 	Bool
 	Int
 	Float
@@ -63,14 +63,14 @@ const (
 )
 
 // String returns the name of ft.
-func (ft FieldType) String() string {
+func (ft Type) String() string {
 	return []string{"NA", "Bool", "Int", "Float", "String", "Time"}[ft]
 }
 
 // Field represents a column in a data frame.
 type Field struct {
 	Name  string                  // The name of the field
-	Type  FieldType               // The type of the field
+	Type  Type               // The type of the field
 	Value func(i int) interface{} // The value, maybe nil
 
 	MayFail bool
@@ -372,7 +372,7 @@ func (e *Extractor) bindSOM(data interface{}) {
 
 // superType returns our types which group Go's low level types.
 // A Go type which cannot be handled will yield NA.
-func superType(t reflect.Type) FieldType {
+func superType(t reflect.Type) Type {
 	switch t.Kind() {
 	case reflect.Bool:
 		return Bool
