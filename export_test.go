@@ -85,6 +85,7 @@ func TestCSVExtractor(t *testing.T) {
 	}
 
 	d.Dump(extractor, DefaultFormat)
+	TabDumper{Writer: os.Stdout}.Dump(extractor, RFormat)
 }
 
 func TestRVecExtractor(t *testing.T) {

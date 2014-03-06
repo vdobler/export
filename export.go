@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"reflect"
+	"text/tabwriter"
 	"time"
 )
 
@@ -161,11 +162,40 @@ func (d CSVDumper) Dump(e Extractor, format Format) error {
 	return d.Writer.Error()
 }
 
+type TabDumper struct {
+	Writer io.Writer
+	Flags  uint
+}
+
+// Dump dumps the fields from e to d.
+func (d TabDumper) Dump(e Extractor, format Format) error {
+	w := new(tabwriter.Writer)
+	w.Init(d.Writer, 1, 8, 1, ' ', d.Flags)
+	for i, field := range e.Fields {
+		if i == 0 {
+			fmt.Fprintf(w, "%s", field.Name)
+		} else {
+			fmt.Fprintf(w, "\t%s", field.Name)
+		}
+	}
+	fmt.Fprintln(w)
+	for r := 0; r < e.N; r++ {
+		for i, field := range e.Fields {
+			if i == 0 {
+				fmt.Fprintf(w, "%s", field.Print(format, r))
+			} else {
+				fmt.Fprintf(w, "\t%s", field.Print(format, r))
+			}
+		}
+		fmt.Fprintln(w)
+	}
+	w.Flush()
+	return nil
+}
+
 // RVecDumper dumps as a R vectors.
 type RVecDumper struct {
-	Writer   io.Writer
-	FloatFmt string // FloatFmt may be used to change the formating of floats.
-	TimeFmt  string // TimeFmt may be used to change the formating of times.
+	Writer io.Writer
 
 	// If Name is nonempty a data frame named Name consisting of all
 	// fields is constructed too.
