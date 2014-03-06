@@ -1,30 +1,54 @@
+// Copyright Volker Dobler 2014
+
+// Package export provides tools to dump tabulated data.
+//
+// Export allows to dump tabular data in different output formats.
+// The main type is Exporter which determines which data is output
+// and in which order. An Exporter is constructed from (almost)
+// any slice type.  Take a struct S with two fields A and B and two
+// methods C and D and.
+//
+//     type S struct {
+//         A float64
+//         B string
+//     }
+//
+//     func (s S) C() int {
+//         return int(s.A+0.5)
+//     }
+//
+//     func (s S) D() (bool, error) {
+//         if s.B == "" {
+//             return false, errors.New("empty")
+//         }
+//         return len(s.B) > 5, nil
+//     }
+//
+//     var data = []S{S{3.14, "Hello"}, S{55.5, ""}}
+//     exp, err := NewExtractor("C", "D", "A", B")
+//     dumper := TabDumper{Writer: os.Stdout}
+//     dumper.dump(exp)
+//
+// Would produce a text table and output the collumns C, D, A and B.
+// Note that column D may contain NA for "not avialable".
+//
 package export
 
 import (
 	"encoding/csv"
 	"fmt"
 	"io"
-	"math"
 	"reflect"
 	"text/tabwriter"
 	"time"
 )
-
-// New idea: Register a type first. This sets an internal description
-// of the fields, their types, etc. This step may fail, e.g. if unknown
-// fields are used.
-// Then bind an Extractor to any such type. This process constructs
-// the actual closures to get the values and doesn't fail. ANd uses
-// the actual number of elements.
-
-var m = math.Floor
 
 func isTime(x reflect.Type) bool {
 	return x.PkgPath() == "time" && x.Kind() == reflect.Struct && x.Name() == "Time"
 }
 
 // -------------------------------------------------------------------------
-// Field Types
+// Fields
 
 // FieldType represents the basisc type of a field.
 type FieldType uint
@@ -38,56 +62,10 @@ const (
 	Time
 )
 
-// String representation of ft.
+// String returns the name of ft.
 func (ft FieldType) String() string {
 	return []string{"NA", "Bool", "Int", "Float", "String", "Time"}[ft]
 }
-
-// -------------------------------------------------------------------------
-// Formating Options
-
-// Format describes how different fields types will be formated
-type Format struct {
-	True, False string // String values of boolean true and false.
-	IntFmt      string // Package fmt style verb for int64 printing.
-	FloatFmt    string // Package fmt style verb for float64 printing.
-	StringFmt   string // Package fmt style verb for string printing.
-	TimeFmt     string // A package time layout string.
-
-	// TimeLoc is the location in which times are presented.
-	// If a nil TimeLoc is used the times are presented in their
-	// original location.
-	TimeLoc *time.Location
-
-	NA string // Representation of a missing value.
-}
-
-// DefaultFormat are the default formating options.
-var DefaultFormat = Format{
-	True:      "true",
-	False:     "false",
-	IntFmt:    "%d",
-	FloatFmt:  "%.5g",
-	StringFmt: "%s",
-	TimeFmt:   "2006-01-02T15:04:05.999",
-	TimeLoc:   time.Local,
-	NA:        "",
-}
-
-// RFormat is a useful format for dumping stuff you want to read into R.
-var RFormat = Format{
-	True:      "TRUE",
-	False:     "FALSE",
-	IntFmt:    "%d",
-	FloatFmt:  "%.6g",
-	StringFmt: "%s",
-	TimeFmt:   "2006-01-02 15:04:05",
-	TimeLoc:   time.Local,
-	NA:        "NA",
-}
-
-// -------------------------------------------------------------------------
-// Field
 
 // Field represents a column in a data frame.
 type Field struct {
