@@ -282,3 +282,16 @@ func TestBadField(t *testing.T) {
 		}
 	}
 }
+
+func TestBind(t *testing.T) {
+	extractor, err := NewExtractor(measurement, "Age", "Origin")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+
+	short := measurement[0:5]
+	extractor.Bind(short)
+	if extractor.N != 5 {
+		t.Errorf("Expected length 5 after rebinding, got %d", extractor.N)
+	}
+}

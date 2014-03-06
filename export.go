@@ -251,9 +251,8 @@ type Extractor struct {
 	// Field contains all the fields, i.e. the columns to extract.
 	Fields []Field
 
-	som   bool          // true for slice-of-measurement, false for collection-of-slices
-	value reflect.Value // the current binding
-	typ   reflect.Type
+	som bool // true for slice-of-measurement, false for collection-of-slices
+	typ reflect.Type
 }
 
 // NewExtractor returns an extractor for the given fieldnames of data.
@@ -266,6 +265,7 @@ func NewExtractor(data interface{}, fieldnames ...string) (*Extractor, error) {
 		if err != nil {
 			return ex, err
 		}
+		ex.som = true
 		ex.bindSOM(data)
 		return ex, nil
 	case reflect.Struct:
@@ -288,9 +288,10 @@ func (e *Extractor) Bind(data interface{}) {
 	}
 }
 
+// bindSOM is the slice-of-measurements version of Bind.
 func (e *Extractor) bindSOM(data interface{}) {
 	v := reflect.ValueOf(data)
-	e.value = v
+	e.N = v.Len()
 
 	for fn, field := range e.Fields {
 		n := field.fieldNo
@@ -391,6 +392,8 @@ func (e *Extractor) bindSOM(data interface{}) {
 	}
 }
 
+// superType returns our types which group Go's low level types.
+// A Go type which cannot be handled will yield NA.
 func superType(t reflect.Type) FieldType {
 	switch t.Kind() {
 	case reflect.Bool:
@@ -413,12 +416,11 @@ var (
 	errorInterfaceType = reflect.TypeOf((*error)(nil)).Elem()
 )
 
+// newSOMExtractor sets up an unbound Extractor for a slice-of-measurements
+// type data.
 func newSOMExtractor(data interface{}, fieldnames ...string) (*Extractor, error) {
 	t := reflect.TypeOf(data).Elem()
-	v := reflect.ValueOf(data)
 	ex := Extractor{}
-	ex.N = v.Len()
-	ex.value = v
 	ex.typ = t
 
 	for _, name := range fieldnames {
