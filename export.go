@@ -34,6 +34,61 @@
 //
 package export
 
+
+// Stuff is getting complicated once there are pointers involved.
+//     data := []*S{...}
+//     type S struct {
+//         A *int
+//         B struct { C bool; D string}
+           E *T
+//     }
+//     type T struct {
+//             F string
+//         }
+//     }
+//     func (t T) M() float64 { return 3.14 }
+//     type U struct { G int64 }
+//     func (t T) N() (*U, error) { return &U{123}, nil }
+// Might be interesting to extract from nested structs like
+//     NewExtractor{"A", "B.C", "E.F", "E.M", "E.N.G"}
+// So we would have:
+//   - plain field: a leaf
+//   - ptr to plain field: may fail, one to go for a leaf
+//   - nested struct
+//   - ptr to nested struct
+//   - ptr to ptr to ... ? (realy needed)
+//   - method call
+// That means a columns spec like "E.N.G" above translates to
+// an access rule for row n like:
+//   - take element n
+//   - deref ptr (to get a S) if non nil, else --> nil
+//   - deref E (to get a T) if non nil, else --> nil
+//   - call N (to get a *U) if err --> nil
+//   - deref ret (to get a U) if non nil, else --> nil
+//   - return N
+// Each step can be summarized as working on cur
+//   If cur is Method:
+//       cur = call method
+//       if mayFail && hasErr  -->  nil
+//       restart
+//   If a ptr:
+//       If nil  -->  nil
+//       Else cur = deref cur
+//       restart
+//   If struct:
+//       cur = field from next part in colspec
+//       restart
+//   If field:
+//       If known type --> return
+//       If assignable to known type --> return
+//       If encodingTextMarshal-able --> do it an return
+//       Printf %v --> return.
+// NewExtractor would build such a list of access rules and Column.Value
+// would execute this rule list. Pre-Built closures are of limits.
+// It would be basically what encoding/gob does, just without cycle
+// detection and other fancyness.
+//
+
 import (
 	"encoding/csv"
 	"fmt"
