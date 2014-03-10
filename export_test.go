@@ -400,7 +400,7 @@ func TestAccessor(t *testing.T) {
 
 	// Check method access
 	m := reflect.TypeOf(TT{}).Method(0).Func
-	d := step{name: "D", field: -1, method: m}
+	d := step{name: "D", method: m}
 	if w, err := access(v, []step{b, d}); err != nil {
 		t.Fatalf("Unexpected error %s", err)
 	} else {
@@ -411,7 +411,7 @@ func TestAccessor(t *testing.T) {
 
 	// Going even further
 	m = reflect.TypeOf(TT{}).Method(1).Func
-	f := step{name: "f", field: -1, method: m}
+	f := step{name: "f", method: m}
 	e := step{name: "E", field: 0}
 	if w, err := access(v, []step{b, f, e}); err != nil {
 		t.Fatalf("Unexpected error %s", err)
@@ -421,7 +421,7 @@ func TestAccessor(t *testing.T) {
 		}
 	}
 	m = reflect.TypeOf(TTT{}).Method(0).Func
-	g := step{name: "G", field: -1, method: m}
+	g := step{name: "G", method: m}
 	if w, err := access(v, []step{b, f, g}); err != nil {
 		t.Fatalf("Unexpected error %s", err)
 	} else {

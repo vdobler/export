@@ -604,15 +604,15 @@ type step struct {
 func access(v reflect.Value, steps []step) (reflect.Value, error) {
 	for _, s := range steps {
 		// Step down in field or method.
-		if s.field >= 0 {
-			v = v.Field(s.field)
-		} else {
+		if s.method.IsValid() {
 			// TODO: methods on pointers?
 			z := s.method.Call([]reflect.Value{v})
 			if s.mayFail && z[1].Interface() != nil {
 				return v, fmt.Errorf("method call failed on %s", s.name)
 			}
 			v = z[0]
+		} else {
+			v = v.Field(s.field)
 		}
 
 		// Follow all pointer indirections.
