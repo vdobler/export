@@ -329,7 +329,6 @@ type T struct {
 	AP  *int
 	APP **int
 	B   TT
-	BPP **TT
 }
 
 type TT struct {
@@ -346,33 +345,88 @@ func (_ TT) F() TTT  { return TTT{E: "Hello"} }
 func (t TTT) G() int { return len(t.E) }
 
 func TestAccessor(t *testing.T) {
-	i1, i2, i3 := 7, 11, 13
-	pi3 := &i3
-	f := 3.141
+	i1, i2 := 11, 13
+	pi2 := &i2
+	fl := float64(17)
 	data := T{
-		A: i1, AP: &i2, APP: &pi3,
-		B: TT{C: 2.7, CP: &f},
+		A: i1, AP: nil, APP: &pi2,
+		B: TT{C: 19, CP: &fl},
 	}
 
-	a0 := step{name: "A-0", typ: Struct, num: 0}
-	a := step{name: "A", typ: Int}
-	app0 := step{name: "APP-0", typ: Struct, num: 2}
-	app := step{name: "APP", typ: Int, indir: 2}
-	fmt.Printf("A=%v\n", access(v, []step{a0, a}))
-	fmt.Printf("APP=%v\n", access(v, []step{app0, app}))
-
-	b := step{name: "B", typ: Struct, num: 3}
-	// bpp := step{name: "BPP",typ: Struct, num: 3, indir: 2}
-
-	c0 := step{name: "C0", typ: Struct, num: 0}
-	c := step{name: "C", typ: Float}
-	cp0 := step{name: "CP0", typ: Struct, num: 1}
-	cp := step{name: "CP", typ: Float, indir: 1}
-
 	v := reflect.ValueOf(data)
-	fmt.Printf("B.C=%v\n", access(v, []step{b, c0, c}))
-	fmt.Printf("B.CP=%v\n", access(v, []step{b, cp0, cp}))
 
-	//	c := step{name: "C",typ: Struct, num: 0}
+	// Check access to a, ap and app
+	a := step{name: "A", field: 0}
+	ap := step{name: "AP", field: 1, indir: 1}
+	app := step{name: "APP", field: 2, indir: 2}
 
+	if w, err := access(v, []step{a}); err != nil {
+		t.Fatalf("Unexpected error %s", err)
+	} else {
+		if g := w.Int(); g != 11 {
+			t.Errorf("got %d", g)
+		}
+	}
+	if _, err := access(v, []step{ap}); err == nil {
+		t.Fatalf("Missing error")
+	}
+	if w, err := access(v, []step{app}); err != nil {
+		t.Fatalf("Unexpected error %s", err)
+	} else {
+		if g := w.Int(); g != 13 {
+			t.Errorf("got %d", g)
+		}
+	}
+
+	// Check deep down access
+	b := step{name: "B", field: 3}
+	c := step{name: "C", field: 0}
+	cp := step{name: "CP", field: 1, indir: 1}
+
+	if w, err := access(v, []step{b, c}); err != nil {
+		t.Fatalf("Unexpected error %s", err)
+	} else {
+		if g := w.Float(); g != 19 {
+			t.Errorf("got %g", g)
+		}
+	}
+	if w, err := access(v, []step{b, cp}); err != nil {
+		t.Fatalf("Unexpected error %s", err)
+	} else {
+		if g := w.Float(); g != 17 {
+			t.Errorf("got %g", g)
+		}
+	}
+
+	// Check method access
+	m := reflect.TypeOf(TT{}).Method(0).Func
+	d := step{name: "D", field: -1, method: m}
+	if w, err := access(v, []step{b, d}); err != nil {
+		t.Fatalf("Unexpected error %s", err)
+	} else {
+		if g := w.Int(); g != 123 {
+			t.Errorf("got %d", g)
+		}
+	}
+
+	// Going even further
+	m = reflect.TypeOf(TT{}).Method(1).Func
+	f := step{name: "f", field: -1, method: m}
+	e := step{name: "E", field: 0}
+	if w, err := access(v, []step{b, f, e}); err != nil {
+		t.Fatalf("Unexpected error %s", err)
+	} else {
+		if g := w.String(); g != "Hello" {
+			t.Errorf("got %q", g)
+		}
+	}
+	m = reflect.TypeOf(TTT{}).Method(0).Func
+	g := step{name: "G", field: -1, method: m}
+	if w, err := access(v, []step{b, f, g}); err != nil {
+		t.Fatalf("Unexpected error %s", err)
+	} else {
+		if g := w.Int(); g != int64(len("Hello")) {
+			t.Errorf("got %d", g)
+		}
+	}
 }
