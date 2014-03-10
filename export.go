@@ -34,13 +34,12 @@
 //
 package export
 
-
 // Stuff is getting complicated once there are pointers involved.
 //     data := []*S{...}
 //     type S struct {
 //         A *int
 //         B struct { C bool; D string}
-           E *T
+//         E *T
 //     }
 //     type T struct {
 //             F string
@@ -115,11 +114,13 @@ const (
 	Float
 	String
 	Time
+	Struct
+	Method
 )
 
 // String returns the name of ft.
 func (ft Type) String() string {
-	return []string{"NA", "Bool", "Int", "Float", "String", "Time"}[ft]
+	return []string{"NA", "Bool", "Int", "Float", "String", "Time", "Struct", "Method"}[ft]
 }
 
 // Column
@@ -584,4 +585,57 @@ func newSOMExtractor(data interface{}, fieldnames ...string) (*Extractor, error)
 	}
 
 	return &ex, nil
+}
+
+// -------------------------------------------------------------------------
+
+type step struct {
+	name    string        // the name of this element
+	indir   int           // number of ptr-indirections to take before a type is reached
+	method  reflect.Value // the function to call
+	typ     Type          // the type after indirection
+	num     int           // field or method number
+	mayFail bool          // for methods which return (result, error)
+}
+
+func access(v reflect.Value, steps []step) interface{} {
+	for sn, s := range steps {
+		fmt.Printf("Step %d, name=%s typ=%s indir=%d, num=%d\nv = %s\n",
+			sn, s.name, s.typ, s.indir, s.num, v)
+		// Follow all pointer indirections.
+		for i := 0; i < s.indir; i++ {
+			if v.IsNil() {
+				return nil
+			}
+			fmt.Printf("  doing indir %d of %d\n", i, s.indir)
+			v = reflect.Indirect(v)
+		}
+
+		switch s.typ {
+		case Bool:
+			return v.Bool()
+		case Int:
+			return v.Int()
+		case Float:
+			return v.Float()
+		case String:
+			return v.String()
+		case Time:
+			return v.Interface()
+		case Struct:
+			v = v.Field(s.num)
+		case Method:
+			// TODO: methods on pointers?
+			z := s.method.Call([]reflect.Value{v})
+			if s.mayFail && z[1].Interface() != nil {
+				return nil
+			}
+			v = z[0]
+		default:
+			panic("Oooops")
+		}
+
+	}
+
+	panic("Oooops")
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -321,4 +322,57 @@ func TestSliceOfPointers(t *testing.T) {
 	}
 
 	TabDumper{Writer: os.Stdout}.Dump(extractor, RFormat)
+}
+
+type T struct {
+	A   int
+	AP  *int
+	APP **int
+	B   TT
+	BPP **TT
+}
+
+type TT struct {
+	C  float64
+	CP *float64
+}
+
+type TTT struct {
+	E string
+}
+
+func (_ TT) D() int  { return 123 }
+func (_ TT) F() TTT  { return TTT{E: "Hello"} }
+func (t TTT) G() int { return len(t.E) }
+
+func TestAccessor(t *testing.T) {
+	i1, i2, i3 := 7, 11, 13
+	pi3 := &i3
+	f := 3.141
+	data := T{
+		A: i1, AP: &i2, APP: &pi3,
+		B: TT{C: 2.7, CP: &f},
+	}
+
+	a0 := step{name: "A-0", typ: Struct, num: 0}
+	a := step{name: "A", typ: Int}
+	app0 := step{name: "APP-0", typ: Struct, num: 2}
+	app := step{name: "APP", typ: Int, indir: 2}
+	fmt.Printf("A=%v\n", access(v, []step{a0, a}))
+	fmt.Printf("APP=%v\n", access(v, []step{app0, app}))
+
+	b := step{name: "B", typ: Struct, num: 3}
+	// bpp := step{name: "BPP",typ: Struct, num: 3, indir: 2}
+
+	c0 := step{name: "C0", typ: Struct, num: 0}
+	c := step{name: "C", typ: Float}
+	cp0 := step{name: "CP0", typ: Struct, num: 1}
+	cp := step{name: "CP", typ: Float, indir: 1}
+
+	v := reflect.ValueOf(data)
+	fmt.Printf("B.C=%v\n", access(v, []step{b, c0, c}))
+	fmt.Printf("B.CP=%v\n", access(v, []step{b, cp0, cp}))
+
+	//	c := step{name: "C",typ: Struct, num: 0}
+
 }
