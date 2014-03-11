@@ -480,6 +480,7 @@ func (e *Extractor) bindSOM(data interface{}) {
 
 // superType returns our types which group Go's low level types.
 // A Go type which cannot be handled will yield NA.
+// TODO: this might be the worst name for this function
 func superType(t reflect.Type) Type {
 	switch t.Kind() {
 	case reflect.Bool:
@@ -626,4 +627,28 @@ func access(v reflect.Value, steps []step) (reflect.Value, error) {
 	}
 
 	return v, nil
+}
+
+// retrieve decends v according to steps and returns the last value
+// either as bool, int64, float64, string or time.Time.
+// If no value was found due to nil pointers or method failures
+// nil is returned.
+func retrieve(v reflect.Value, steps []step) interface{} {
+	res, err := access(v, steps)
+	if err != nil {
+		return nil
+	}
+	switch superType(res.Type()) {
+	case Bool:
+		return res.Bool()
+	case Int:
+		return res.Int()
+	case Float:
+		return res.Float()
+	case String:
+		return res.String()
+	case Time:
+		return res.Interface()
+	}
+	return nil
 }

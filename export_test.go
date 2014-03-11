@@ -344,7 +344,7 @@ func (_ TT) D() int  { return 123 }
 func (_ TT) F() TTT  { return TTT{E: "Hello"} }
 func (t TTT) G() int { return len(t.E) }
 
-func TestAccessor(t *testing.T) {
+func TestAccessRetrieve(t *testing.T) {
 	i1, i2 := 11, 13
 	pi2 := &i2
 	fl := float64(17)
@@ -355,15 +355,15 @@ func TestAccessor(t *testing.T) {
 
 	v := reflect.ValueOf(data)
 
-	// Check access to a, ap and app
+	// Check access to a, ap and app.
 	a := step{name: "A", field: 0}
 	ap := step{name: "AP", field: 1, indir: 1}
 	app := step{name: "APP", field: 2, indir: 2}
 
-	if w, err := access(v, []step{a}); err != nil {
-		t.Fatalf("Unexpected error %s", err)
+	if w := retrieve(v, []step{a}); w == nil {
+		t.Fatalf("Unexpected nil")
 	} else {
-		if g := w.Int(); g != 11 {
+		if g := w.(int64); g != 11 {
 			t.Errorf("got %d", g)
 		}
 	}
@@ -378,7 +378,7 @@ func TestAccessor(t *testing.T) {
 		}
 	}
 
-	// Check deep down access
+	// Check deep down access.
 	b := step{name: "B", field: 3}
 	c := step{name: "C", field: 0}
 	cp := step{name: "CP", field: 1, indir: 1}
@@ -398,7 +398,7 @@ func TestAccessor(t *testing.T) {
 		}
 	}
 
-	// Check method access
+	// Check method access.
 	m := reflect.TypeOf(TT{}).Method(0).Func
 	d := step{name: "D", method: m}
 	if w, err := access(v, []step{b, d}); err != nil {
@@ -409,14 +409,14 @@ func TestAccessor(t *testing.T) {
 		}
 	}
 
-	// Going even further
+	// Going even further.
 	m = reflect.TypeOf(TT{}).Method(1).Func
 	f := step{name: "f", method: m}
 	e := step{name: "E", field: 0}
-	if w, err := access(v, []step{b, f, e}); err != nil {
-		t.Fatalf("Unexpected error %s", err)
+	if w := retrieve(v, []step{b, f, e}); w == nil {
+		t.Fatalf("Unexpected nil")
 	} else {
-		if g := w.String(); g != "Hello" {
+		if g := w.(string); g != "Hello" {
 			t.Errorf("got %q", g)
 		}
 	}
