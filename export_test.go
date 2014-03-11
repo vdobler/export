@@ -340,9 +340,12 @@ type TTT struct {
 	E string
 }
 
-func (_ TT) D() int  { return 123 }
-func (_ TT) F() TTT  { return TTT{E: "Hello"} }
-func (t TTT) G() int { return len(t.E) }
+func (_ TT) D() int            { return 123 }
+func (_ TT) F() TTT            { return TTT{E: "Hello"} }
+func (_ TT) FE() (TTT, error)  { return TTT{}, fmt.Errorf("some err") }
+func (_ TT) Fxyz() (TTT, bool) { return TTT{}, false }
+func (t TTT) G() int           { return len(t.E) }
+func (t TTT) GTT() TT          { return TT{} }
 
 func TestBuildSteps(t *testing.T) {
 	typ := reflect.TypeOf(T{})
@@ -371,6 +374,35 @@ func TestBuildSteps(t *testing.T) {
 	}
 	if steps[0].indir != 2 {
 		t.Errorf("Indir of APP = %, want 2", steps[0].indir)
+	}
+}
+
+func TestBuildStepsErrors(t *testing.T) {
+	typ := reflect.TypeOf(T{})
+
+	_, err := buildSteps(typ, "X")
+	if err == nil {
+		t.Errorf("Expected no such field or method X.")
+	}
+
+	_, err = buildSteps(typ, "B")
+	if err == nil {
+		t.Errorf("Expected B to be of unusable typ for final element.")
+	}
+
+	_, err = buildSteps(typ, "B.X")
+	if err == nil {
+		t.Errorf("Expected no such field or method X.")
+	}
+
+	_, err = buildSteps(typ, "B.Fxyz.E")
+	if err == nil {
+		t.Errorf("Expected wrong method signature for Fxyz")
+	}
+
+	_, err = buildSteps(typ, "B.FE.GTT")
+	if err == nil {
+		t.Errorf("Expected wrong return type method GTT for last element.")
 	}
 }
 

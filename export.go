@@ -618,7 +618,10 @@ func buildSteps(typ reflect.Type, elem string) ([]step, error) {
 					typ = typ.Elem()
 					indir++
 				}
-				// TODO: make sure last field is handable.
+				t := superType(typ)
+				if last && t == NA {
+					return steps, fmt.Errorf("export: cannot use field %s of type %v as final element", cur, typ)
+				}
 				s := step{name: cur, field: f, indir: indir}
 				steps = append(steps, s)
 				found = true
@@ -642,10 +645,11 @@ func buildSteps(typ reflect.Type, elem string) ([]step, error) {
 		//   func(elemtype) ([int,string,float,time], error)
 		mt := m.Type
 		numOut := mt.NumOut()
-		st := superType(mt.Out(0))
-		if mt.NumIn() != 1 || (numOut != 1 && numOut != 2) || (last && st == NA) {
-			return steps, fmt.Errorf("export: cannot use method %s of %T (%d %d %s %t)",
-				cur, typ, mt.NumIn(), numOut, st, last)
+		if mt.NumIn() != 1 || (numOut != 1 && numOut != 2) {
+			return steps, fmt.Errorf("export: cannot use method %s of %T", cur, typ)
+		}
+		if last && superType(mt.Out(0)) == NA {
+			return steps, fmt.Errorf("export: cannot use methods %s return of type %v as final element", cur, mt.Out(0))
 		}
 		mayFail := false
 		if numOut == 2 {
