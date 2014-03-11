@@ -344,6 +344,36 @@ func (_ TT) D() int  { return 123 }
 func (_ TT) F() TTT  { return TTT{E: "Hello"} }
 func (t TTT) G() int { return len(t.E) }
 
+func TestBuildSteps(t *testing.T) {
+	typ := reflect.TypeOf(T{})
+	steps, err := buildSteps(typ, "B.F.E")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+
+	if steps[0].method.IsValid() {
+		t.Errorf("B should be field, got method")
+	}
+	if !steps[1].method.IsValid() {
+		t.Errorf("F should be method, got field")
+	}
+	if steps[2].method.IsValid() {
+		t.Errorf("E should be field, got method")
+	}
+
+	steps, err = buildSteps(typ, "APP")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+
+	if steps[0].method.IsValid() {
+		t.Errorf("APP should be field, got method")
+	}
+	if steps[0].indir != 2 {
+		t.Errorf("Indir of APP = %, want 2", steps[0].indir)
+	}
+}
+
 func TestAccessRetrieve(t *testing.T) {
 	i1, i2 := 11, 13
 	pi2 := &i2

@@ -93,6 +93,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strings"
 	"text/tabwriter"
 	"time"
 )
@@ -597,6 +598,71 @@ type step struct {
 	method  reflect.Value // the function to call, if zero: not a fn call but a field access
 	field   int           // field number if method is zero
 	mayFail bool          // for methods which return (result, error)
+}
+
+// buildSteps constructs a slice of steps to access the given elem in typ.
+func buildSteps(typ reflect.Type, elem string) ([]step, error) {
+	var steps []step
+	elements := strings.Split(elem, ".")
+	for e, cur := range elements {
+		fmt.Printf("WORKING on %s, type = %v, kind = %s\n", cur, typ, typ.Kind())
+		found := false
+		last := e == len(elements)-1
+
+		// Fields first.
+		for f := 0; f < typ.NumField(); f++ {
+			if typ.Field(f).Name == cur {
+				typ = typ.Field(f).Type
+				indir := 0
+				for typ.Kind() == reflect.Ptr {
+					typ = typ.Elem()
+					indir++
+				}
+				// TODO: make sure last field is handable.
+				s := step{name: cur, field: f, indir: indir}
+				steps = append(steps, s)
+				found = true
+				break
+			}
+		}
+		if found {
+			fmt.Printf("Found field %s: %+v\ntyp now %v\n",
+				cur, steps[len(steps)-1], typ)
+			continue
+		}
+
+		// Methods next
+		m, ok := typ.MethodByName(cur)
+		if !ok {
+			return steps, fmt.Errorf("export: no field or method %s in %T", cur, typ)
+		}
+		// Look for methods with signatures like
+		//   func(elemtype) [int,string,float,time]
+		// or
+		//   func(elemtype) ([int,string,float,time], error)
+		mt := m.Type
+		numOut := mt.NumOut()
+		st := superType(mt.Out(0))
+		if mt.NumIn() != 1 || (numOut != 1 && numOut != 2) || (last && st == NA) {
+			return steps, fmt.Errorf("export: cannot use method %s of %T (%d %d %s %t)",
+				cur, typ, mt.NumIn(), numOut, st, last)
+		}
+		mayFail := false
+		if numOut == 2 {
+			if mt.Out(1).Kind() == reflect.Interface &&
+				mt.Out(1).Implements(errorInterfaceType) {
+				mayFail = true
+			} else {
+				return steps, fmt.Errorf("export: cannot use method %s of %T", cur, typ)
+			}
+		}
+		typ = mt.Out(0)
+		s := step{name: cur, method: m.Func, mayFail: mayFail}
+		steps = append(steps, s)
+		fmt.Printf("Found method %s: %+v\ntyp now %v\n", cur, steps[len(steps)-1], typ)
+	}
+
+	return steps, nil
 }
 
 // access drills down in v according to the given steps.
