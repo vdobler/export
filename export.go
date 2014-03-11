@@ -3,90 +3,20 @@
 // Package export provides tools to dump tabulated data.
 //
 // Export allows to dump tabular data in different output formats.
-// The main type is Exporter which determines which data is output
-// and in which order. An Exporter is constructed from (almost)
-// any slice type.  Take a struct S with two fields A and B and two
-// methods C and D and.
+// The main type is Exporter which determines which data is output and in
+// which order. An Exporter is constructed from (almost) any slice type
+// and may access nested fields.
 //
-//     type S struct {
-//         A float64
-//         B string
-//     }
-//
-//     func (s S) C() int {
-//         return int(s.A+0.5)
-//     }
-//
-//     func (s S) D() (bool, error) {
-//         if s.B == "" {
-//             return false, errors.New("empty")
-//         }
-//         return len(s.B) > 5, nil
-//     }
-//
-//     var data = []S{S{3.14, "Hello"}, S{55.5, ""}}
-//     exp, err := NewExtractor("C", "D", "A", B")
-//     dumper := TabDumper{Writer: os.Stdout}
-//     dumper.dump(exp)
-//
-// Would produce a text table and output the collumns C, D, A and B.
-// Note that column D may contain NA for "not avialable".
+// Export can export the following Go types:
+//   - bool
+//   - uint8, uint16, ...,  int64
+//   - float32 and float64
+//   - string
+//   - time.Time
+// This package handles floats and int as 64bit values. Thus an uint64
+// may overflow without notice.
 //
 package export
-
-// Stuff is getting complicated once there are pointers involved.
-//     data := []*S{...}
-//     type S struct {
-//         A *int
-//         B struct { C bool; D string}
-//         E *T
-//     }
-//     type T struct {
-//             F string
-//         }
-//     }
-//     func (t T) M() float64 { return 3.14 }
-//     type U struct { G int64 }
-//     func (t T) N() (*U, error) { return &U{123}, nil }
-// Might be interesting to extract from nested structs like
-//     NewExtractor{"A", "B.C", "E.F", "E.M", "E.N.G"}
-// So we would have:
-//   - plain field: a leaf
-//   - ptr to plain field: may fail, one to go for a leaf
-//   - nested struct
-//   - ptr to nested struct
-//   - ptr to ptr to ... ? (realy needed)
-//   - method call
-// That means a columns spec like "E.N.G" above translates to
-// an access rule for row n like:
-//   - take element n
-//   - deref ptr (to get a S) if non nil, else --> nil
-//   - deref E (to get a T) if non nil, else --> nil
-//   - call N (to get a *U) if err --> nil
-//   - deref ret (to get a U) if non nil, else --> nil
-//   - return N
-// Each step can be summarized as working on cur
-//   If cur is Method:
-//       cur = call method
-//       if mayFail && hasErr  -->  nil
-//       restart
-//   If a ptr:
-//       If nil  -->  nil
-//       Else cur = deref cur
-//       restart
-//   If struct:
-//       cur = field from next part in colspec
-//       restart
-//   If field:
-//       If known type --> return
-//       If assignable to known type --> return
-//       If encodingTextMarshal-able --> do it an return
-//       Printf %v --> return.
-// NewExtractor would build such a list of access rules and Column.Value
-// would execute this rule list. Pre-Built closures are of limits.
-// It would be basically what encoding/gob does, just without cycle
-// detection and other fancyness.
-//
 
 import (
 	"encoding/csv"
@@ -103,9 +33,9 @@ func isTime(x reflect.Type) bool {
 }
 
 // -------------------------------------------------------------------------
-// Type
+// Type and Column
 
-// Type represents the basisc type of a columne.
+// Type represents the basic type of a column.
 type Type uint
 
 const (
@@ -122,17 +52,20 @@ func (ft Type) String() string {
 	return []string{"NA", "Bool", "Int", "Float", "String", "Time"}[ft]
 }
 
-// Column
+// Column represents one column in the export.
 type Column struct {
-	Name    string                  // The name of the field
-	Type    Type                    // The type of the field
-	Value   func(i int) interface{} // The value, maybe nil
-	MayFail bool                    // Pointer fields or erroring methods
+	Name string // The name of the column.
+	Type Type   // The type of the column.
 
-	access []step
+	// Value returns the i'th value in this column.
+	// For errors or nil pointers nil is returned.
+	Value func(i int) interface{}
+
+	mayFail bool   // Pointer fields or erroring methods.
+	access  []step // The steps needed to access the result.
 }
 
-// Print the i'th entry of f according to the given format.
+// Print the i'th entry of column c given format.
 func (c Column) Print(format Format, i int) string {
 	val := c.Value(i)
 	if val == nil {
@@ -163,10 +96,6 @@ func (c Column) Print(format Format, i int) string {
 
 // -------------------------------------------------------------------------
 // Dumper
-
-type Dumper interface {
-	Dump(e Extractor, format Format) error
-}
 
 // CSVDumper dumps values in CSV format
 type CSVDumper struct {
@@ -311,58 +240,6 @@ func NewExtractor(data interface{}, columnSpecs ...string) (*Extractor, error) {
 	return &Extractor{}, fmt.Errorf("Cannot build Extrator for %s", typ.String())
 }
 
-// Bind (re)binds e to data which must be of the same type as the data used
-// during the construction of e.
-func (e *Extractor) Bind(data interface{}) {
-	typ := reflect.TypeOf(data)
-	if typ != e.typ {
-		panic(fmt.Sprintf("Cannot bind extractor for %v to data of type %v",
-			e.typ, typ))
-	}
-	if e.som {
-		e.bindSOM(data)
-	} else {
-		panic("COS data frame not implemented")
-	}
-}
-
-// bindSOM is the slice-of-measurements version of Bind.
-func (e *Extractor) bindSOM(data interface{}) {
-	v := reflect.ValueOf(data)
-	e.N = v.Len()
-	for fn, field := range e.Columns {
-		access := field.access
-		e.Columns[fn].Value = func(i int) interface{} {
-			return retrieve(v.Index(i), access, e.indir)
-		}
-	}
-}
-
-// superType returns our types which group Go's low level types.
-// A Go type which cannot be handled will yield NA.
-// TODO: this might be the worst name for this function
-func superType(t reflect.Type) Type {
-	switch t.Kind() {
-	case reflect.Bool:
-		return Bool
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return Int
-	case reflect.String:
-		return String
-	case reflect.Float32, reflect.Float64:
-		return Float
-	case reflect.Struct:
-		if isTime(t) {
-			return Time
-		}
-	}
-	return NA
-}
-
-var (
-	errorInterfaceType = reflect.TypeOf((*error)(nil)).Elem()
-)
-
 // newSOMExtractor sets up an unbound Extractor for a slice-of-measurements
 // type data.
 func newSOMExtractor(data interface{}, colSpecs ...string) (*Extractor, error) {
@@ -396,7 +273,7 @@ func newSOMExtractor(data interface{}, colSpecs ...string) (*Extractor, error) {
 		field := Column{
 			Name:    last.name,
 			Type:    superType(last.typ),
-			MayFail: mayFail,
+			mayFail: mayFail,
 			access:  steps,
 		}
 		ex.Columns = append(ex.Columns, field)
@@ -405,7 +282,60 @@ func newSOMExtractor(data interface{}, colSpecs ...string) (*Extractor, error) {
 	return &ex, nil
 }
 
+// Bind (re)binds e to data which must be of the same type as the data used
+// during the construction of e.
+func (e *Extractor) Bind(data interface{}) {
+	typ := reflect.TypeOf(data)
+	if typ != e.typ {
+		panic(fmt.Sprintf("Cannot bind extractor for %v to data of type %v",
+			e.typ, typ))
+	}
+	if e.som {
+		e.bindSOM(data)
+	} else {
+		panic("COS data frame not implemented")
+	}
+}
+
+// bindSOM is the slice-of-measurements version of Bind.
+func (e *Extractor) bindSOM(data interface{}) {
+	v := reflect.ValueOf(data)
+	e.N = v.Len()
+	for fn, field := range e.Columns {
+		access := field.access
+		e.Columns[fn].Value = func(i int) interface{} {
+			return retrieve(v.Index(i), access, e.indir)
+		}
+	}
+}
+
+// superType returns our types which group Go's low level types.
+// A Go type which cannot be handled will yield NA.
+// TODO: this might be the worst name possible for this function.
+func superType(t reflect.Type) Type {
+	switch t.Kind() {
+	case reflect.Bool:
+		return Bool
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return Int
+	case reflect.String:
+		return String
+	case reflect.Float32, reflect.Float64:
+		return Float
+	case reflect.Struct:
+		if isTime(t) {
+			return Time
+		}
+	}
+	return NA
+}
+
+var (
+	errorInterfaceType = reflect.TypeOf((*error)(nil)).Elem()
+)
+
 // -------------------------------------------------------------------------
+// Steps and accessing fields/methods
 
 // step describes one step during the way down the type hierarchy.
 type step struct {
