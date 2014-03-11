@@ -115,26 +115,21 @@ const (
 	Float
 	String
 	Time
-	Struct
-	Method
 )
 
 // String returns the name of ft.
 func (ft Type) String() string {
-	return []string{"NA", "Bool", "Int", "Float", "String", "Time", "Struct", "Method"}[ft]
+	return []string{"NA", "Bool", "Int", "Float", "String", "Time"}[ft]
 }
 
 // Column
 type Column struct {
-	Name  string                  // The name of the field
-	Type  Type                    // The type of the field
-	Value func(i int) interface{} // The value, maybe nil
+	Name    string                  // The name of the field
+	Type    Type                    // The type of the field
+	Value   func(i int) interface{} // The value, maybe nil
+	MayFail bool                    // Pointer fields or erroring methods
 
-	MayFail bool
-
-	fieldNo int           // >= 0 ==> a field; <0 ==> a method
-	mfunc   reflect.Value // the function of the method if fieldNo < 0
-	ptr     bool          // for pointer fields
+	access []step
 }
 
 // Print the i'th entry of f according to the given format.
@@ -296,12 +291,12 @@ type Extractor struct {
 	typ reflect.Type
 }
 
-// NewExtractor returns an extractor for the given column names of data.
-func NewExtractor(data interface{}, columnnames ...string) (*Extractor, error) {
+// NewExtractor returns an extractor for the given column specifications of data.
+func NewExtractor(data interface{}, columnSpecs ...string) (*Extractor, error) {
 	t := reflect.TypeOf(data)
 	switch t.Kind() {
 	case reflect.Slice:
-		ex, err := newSOMExtractor(data, columnnames...)
+		ex, err := newSOMExtractor(data, columnSpecs...)
 		if err != nil {
 			return ex, err
 		}
@@ -334,147 +329,9 @@ func (e *Extractor) bindSOM(data interface{}) {
 	e.N = v.Len()
 
 	for fn, field := range e.Columns {
-		n := field.fieldNo
-		f := field.mfunc
-		switch {
-		case n >= 0 && !field.ptr:
-			// Plain field access
-			switch field.Type {
-			case Bool:
-				e.Columns[fn].Value = func(i int) interface{} {
-					return v.Index(i).Field(n).Bool()
-				}
-			case Int:
-				e.Columns[fn].Value = func(i int) interface{} {
-					return v.Index(i).Field(n).Int()
-				}
-			case Float:
-				e.Columns[fn].Value = func(i int) interface{} {
-					return v.Index(i).Field(n).Float()
-				}
-			case String:
-				e.Columns[fn].Value = func(i int) interface{} {
-					return v.Index(i).Field(n).String()
-				}
-			case Time:
-				e.Columns[fn].Value = func(i int) interface{} {
-					return v.Index(i).Field(n).Interface()
-				}
-			}
-		case n >= 0 && field.ptr:
-			// Pointer field.
-			switch field.Type {
-			case Bool:
-				e.Columns[fn].Value = func(i int) interface{} {
-					z := v.Index(i).Field(n)
-					if z.IsNil() {
-						return nil
-					}
-					return reflect.Indirect(z).Bool()
-				}
-			case Int:
-				e.Columns[fn].Value = func(i int) interface{} {
-					z := v.Index(i).Field(n)
-					if z.IsNil() {
-						return nil
-					}
-					return reflect.Indirect(z).Int()
-				}
-			case Float:
-				e.Columns[fn].Value = func(i int) interface{} {
-					z := v.Index(i).Field(n)
-					if z.IsNil() {
-						return nil
-					}
-					return reflect.Indirect(z).Float()
-				}
-			case String:
-				e.Columns[fn].Value = func(i int) interface{} {
-					z := v.Index(i).Field(n)
-					if z.IsNil() {
-						return nil
-					}
-					return reflect.Indirect(z).String()
-				}
-			case Time:
-				e.Columns[fn].Value = func(i int) interface{} {
-					z := v.Index(i).Field(n)
-					if z.IsNil() {
-						return nil
-					}
-					return reflect.Indirect(z).Interface()
-				}
-			}
-		case n < 0 && field.MayFail:
-			// Method access with possible failure
-			switch field.Type {
-			case Bool:
-				e.Columns[fn].Value = func(i int) interface{} {
-					z := f.Call([]reflect.Value{v.Index(i)})
-					if z[1].Interface() != nil {
-						return nil
-					}
-					return z[0].Bool()
-				}
-			case Int:
-				e.Columns[fn].Value = func(i int) interface{} {
-					z := f.Call([]reflect.Value{v.Index(i)})
-					if z[1].Interface() != nil {
-						return nil
-					}
-					return z[0].Int()
-				}
-			case Float:
-				e.Columns[fn].Value = func(i int) interface{} {
-					z := f.Call([]reflect.Value{v.Index(i)})
-					if z[1].Interface() != nil {
-						return nil
-					}
-					return z[0].Float()
-				}
-			case String:
-				e.Columns[fn].Value = func(i int) interface{} {
-					z := f.Call([]reflect.Value{v.Index(i)})
-					if z[1].Interface() != nil {
-						return nil
-					}
-					return z[0].String()
-				}
-			case Time:
-				e.Columns[fn].Value = func(i int) interface{} {
-					z := f.Call([]reflect.Value{v.Index(i)})
-					if z[1].Interface() != nil {
-						return nil
-					}
-					return z[0].Interface()
-				}
-			}
-		case n < 0 && !field.MayFail:
-			// Method access without failure
-			switch field.Type {
-			case Bool:
-				e.Columns[fn].Value = func(i int) interface{} {
-					return f.Call([]reflect.Value{v.Index(i)})[0].Bool()
-				}
-			case Int:
-				e.Columns[fn].Value = func(i int) interface{} {
-					return f.Call([]reflect.Value{v.Index(i)})[0].Int()
-				}
-			case Float:
-				e.Columns[fn].Value = func(i int) interface{} {
-					return f.Call([]reflect.Value{v.Index(i)})[0].Float()
-				}
-			case String:
-				e.Columns[fn].Value = func(i int) interface{} {
-					return f.Call([]reflect.Value{v.Index(i)})[0].String()
-				}
-			case Time:
-				e.Columns[fn].Value = func(i int) interface{} {
-					return f.Call([]reflect.Value{v.Index(i)})[0].Interface()
-				}
-			}
-		default:
-			println(n, field.MayFail, field.ptr)
+		access := field.access
+		e.Columns[fn].Value = func(i int) interface{} {
+			return retrieve(v.Index(i), access)
 		}
 	}
 }
@@ -506,84 +363,35 @@ var (
 
 // newSOMExtractor sets up an unbound Extractor for a slice-of-measurements
 // type data.
-func newSOMExtractor(data interface{}, fieldnames ...string) (*Extractor, error) {
+func newSOMExtractor(data interface{}, colSpecs ...string) (*Extractor, error) {
 	t := reflect.TypeOf(data).Elem()
 	ex := Extractor{}
 	ex.typ = t
 
-	for _, name := range fieldnames {
+	for _, spec := range colSpecs {
+		steps, err := buildSteps(t, spec)
+		if err != nil {
+			return nil, err
+		}
+		last := steps[len(steps)-1]
+		mayFail := false
+		if last.isMethodCall() {
+			if last.mayFail {
+				mayFail = true
+			}
+		} else {
+			if last.indir > 0 {
+				mayFail = true
+			}
+		}
+
 		field := Column{
-			Type: NA,
-			Name: name,
+			Name:    last.name,
+			Type:    superType(last.typ),
+			MayFail: mayFail,
+			access:  steps,
 		}
-		// Fields.
-		for n := 0; n < t.NumField(); n++ {
-			f := t.Field(n)
-			if f.Name != name {
-				continue
-			}
-			var st Type
-			if f.Type.Kind() == reflect.Ptr {
-				field.ptr = true
-				st = superType(f.Type.Elem())
-			} else {
-				st = superType(f.Type)
-			}
-			if st == NA {
-				return &ex, fmt.Errorf("export: cannot use field %q type is %#v", name, f.Type)
-			}
-			field.MayFail = false
-			field.fieldNo = n
-			field.Type = st
-			break
-		}
-		if field.Type != NA {
-			ex.Columns = append(ex.Columns, field)
-			continue
-		}
-
-		// The same for methods.
-		// TODO: As n is not used in the field value closures a simple
-		// MethodByName would be much nicer here.
-		for n := 0; n < t.NumMethod(); n++ {
-			m := t.Method(n)
-			if m.Name != name {
-				continue
-			}
-			// Look for methods with signatures like
-			//   func(elemtype) [int,string,float,time]
-			// or
-			//   func(elemtype) ([int,string,float,time], error)
-			mt := m.Type
-			numOut := mt.NumOut()
-			st := superType(mt.Out(0))
-			if mt.NumIn() != 1 || (numOut != 1 && numOut != 2) || st == NA {
-				return &ex, fmt.Errorf("export: cannot use method %q", name)
-			}
-			mayFail := false
-			if numOut == 2 {
-				if mt.Out(1).Kind() == reflect.Interface &&
-					mt.Out(1).Implements(errorInterfaceType) {
-					mayFail = true
-				} else {
-					return &ex, fmt.Errorf("export: cannot use method %q", name)
-				}
-			}
-			field.MayFail = mayFail
-			field.fieldNo = -1
-			field.mfunc = m.Func
-			field.Type = st
-			break
-		}
-		if field.Type != NA {
-			ex.Columns = append(ex.Columns, field)
-			continue
-		}
-
-		return &ex, fmt.Errorf("export: no such field or method %q", name)
-
-		// TODO: Maybe pointer methods too?
-		// v.Addr().MethodByName()
+		ex.Columns = append(ex.Columns, field)
 	}
 
 	return &ex, nil
@@ -598,14 +406,16 @@ type step struct {
 	method  reflect.Value // the function to call, if zero: not a fn call but a field access
 	field   int           // field number if method is zero
 	mayFail bool          // for methods which return (result, error)
+	typ     reflect.Type
 }
+
+func (s step) isMethodCall() bool { return s.method.IsValid() }
 
 // buildSteps constructs a slice of steps to access the given elem in typ.
 func buildSteps(typ reflect.Type, elem string) ([]step, error) {
 	var steps []step
 	elements := strings.Split(elem, ".")
 	for e, cur := range elements {
-		fmt.Printf("WORKING on %s, type = %v, kind = %s\n", cur, typ, typ.Kind())
 		found := false
 		last := e == len(elements)-1
 
@@ -622,15 +432,13 @@ func buildSteps(typ reflect.Type, elem string) ([]step, error) {
 				if last && t == NA {
 					return steps, fmt.Errorf("export: cannot use field %s of type %v as final element", cur, typ)
 				}
-				s := step{name: cur, field: f, indir: indir}
+				s := step{name: cur, field: f, indir: indir, typ: typ}
 				steps = append(steps, s)
 				found = true
 				break
 			}
 		}
 		if found {
-			fmt.Printf("Found field %s: %+v\ntyp now %v\n",
-				cur, steps[len(steps)-1], typ)
 			continue
 		}
 
@@ -661,9 +469,8 @@ func buildSteps(typ reflect.Type, elem string) ([]step, error) {
 			}
 		}
 		typ = mt.Out(0)
-		s := step{name: cur, method: m.Func, mayFail: mayFail}
+		s := step{name: cur, method: m.Func, mayFail: mayFail, typ: typ}
 		steps = append(steps, s)
-		fmt.Printf("Found method %s: %+v\ntyp now %v\n", cur, steps[len(steps)-1], typ)
 	}
 
 	return steps, nil

@@ -310,7 +310,7 @@ func TestPointerFields(t *testing.T) {
 	TabDumper{Writer: os.Stdout}.Dump(extractor, RFormat)
 }
 
-func TestSliceOfPointers(t *testing.T) {
+func _TestSliceOfPointers(t *testing.T) {
 	data := []*S{
 		&S{true, 23, 45.67, "Hello World!", time1, nil},
 		&S{false, 9, 8.76, "Short", time2, nil},
