@@ -310,10 +310,11 @@ func TestPointerFields(t *testing.T) {
 	TabDumper{Writer: os.Stdout}.Dump(extractor, RFormat)
 }
 
-func _TestSliceOfPointers(t *testing.T) {
+func TestSliceOfPointers(t *testing.T) {
 	data := []*S{
 		&S{true, 23, 45.67, "Hello World!", time1, nil},
 		&S{false, 9, 8.76, "Short", time2, nil},
+		nil,
 	}
 
 	extractor, err := NewExtractor(data, "B", "I", "F", "S", "T")
@@ -422,7 +423,7 @@ func TestAccessRetrieve(t *testing.T) {
 	ap := step{name: "AP", field: 1, indir: 1}
 	app := step{name: "APP", field: 2, indir: 2}
 
-	if w := retrieve(v, []step{a}); w == nil {
+	if w := retrieve(v, []step{a}, 0); w == nil {
 		t.Fatalf("Unexpected nil")
 	} else {
 		if g := w.(int64); g != 11 {
@@ -475,7 +476,7 @@ func TestAccessRetrieve(t *testing.T) {
 	m = reflect.TypeOf(TT{}).Method(1).Func
 	f := step{name: "f", method: m}
 	e := step{name: "E", field: 0}
-	if w := retrieve(v, []step{b, f, e}); w == nil {
+	if w := retrieve(v, []step{b, f, e}, 0); w == nil {
 		t.Fatalf("Unexpected nil")
 	} else {
 		if g := w.(string); g != "Hello" {

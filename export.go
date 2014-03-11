@@ -284,37 +284,40 @@ type Extractor struct {
 	// Columns contains all the columns to extract.
 	Columns []Column
 
-	// som is true fro slice-of-measurement type data
-	som bool
+	som   bool // som is true for slice-of-measurement type data.
+	indir int  // number of primary som indirections; e.g. 2 for []**Data
 
-	// typ contains the go type this Extractor can work on.
+	// typ contains the go type this Extractor
+	// can work on i.e. can be bound to.
 	typ reflect.Type
 }
 
 // NewExtractor returns an extractor for the given column specifications of data.
 func NewExtractor(data interface{}, columnSpecs ...string) (*Extractor, error) {
-	t := reflect.TypeOf(data)
-	switch t.Kind() {
+	typ := reflect.TypeOf(data)
+	switch typ.Kind() {
 	case reflect.Slice:
 		ex, err := newSOMExtractor(data, columnSpecs...)
 		if err != nil {
 			return ex, err
 		}
 		ex.som = true
-		ex.bindSOM(data)
+		ex.typ = typ
+		ex.bindSOM(data) // This sets up ex.N and ex.Columns[i].Value.
 		return ex, nil
 	case reflect.Struct:
 		panic("COS data frame not implemented")
 	}
-	return &Extractor{}, fmt.Errorf("Cannot build Extrator for %s", t.String())
+	return &Extractor{}, fmt.Errorf("Cannot build Extrator for %s", typ.String())
 }
 
 // Bind (re)binds e to data which must be of the same type as the data used
 // during the construction of e.
 func (e *Extractor) Bind(data interface{}) {
-	t := reflect.TypeOf(data).Elem()
-	if t != e.typ {
-		panic(fmt.Sprintf("Cannot bind extractor for %s to data of type %s", e.typ, t))
+	typ := reflect.TypeOf(data)
+	if typ != e.typ {
+		panic(fmt.Sprintf("Cannot bind extractor for %v to data of type %v",
+			e.typ, typ))
 	}
 	if e.som {
 		e.bindSOM(data)
@@ -327,11 +330,10 @@ func (e *Extractor) Bind(data interface{}) {
 func (e *Extractor) bindSOM(data interface{}) {
 	v := reflect.ValueOf(data)
 	e.N = v.Len()
-
 	for fn, field := range e.Columns {
 		access := field.access
 		e.Columns[fn].Value = func(i int) interface{} {
-			return retrieve(v.Index(i), access)
+			return retrieve(v.Index(i), access, e.indir)
 		}
 	}
 }
@@ -364,12 +366,18 @@ var (
 // newSOMExtractor sets up an unbound Extractor for a slice-of-measurements
 // type data.
 func newSOMExtractor(data interface{}, colSpecs ...string) (*Extractor, error) {
-	t := reflect.TypeOf(data).Elem()
-	ex := Extractor{}
-	ex.typ = t
+	typ := reflect.TypeOf(data).Elem()
+	indir := 0
+	for typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+		indir++
+	}
+	ex := Extractor{
+		indir: indir,
+	}
 
 	for _, spec := range colSpecs {
-		steps, err := buildSteps(t, spec)
+		steps, err := buildSteps(typ, spec)
 		if err != nil {
 			return nil, err
 		}
@@ -508,9 +516,17 @@ func access(v reflect.Value, steps []step) (reflect.Value, error) {
 
 // retrieve decends v according to steps and returns the last value
 // either as bool, int64, float64, string or time.Time.
+// indir is the primary number of indirections to take.
 // If no value was found due to nil pointers or method failures
 // nil is returned.
-func retrieve(v reflect.Value, steps []step) interface{} {
+func retrieve(v reflect.Value, steps []step, indir int) interface{} {
+	for i := 0; i < indir; i++ {
+		if v.IsNil() {
+			return nil
+		}
+		v = reflect.Indirect(v)
+	}
+
 	res, err := access(v, steps)
 	if err != nil {
 		return nil
