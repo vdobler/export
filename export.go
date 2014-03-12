@@ -24,6 +24,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"math"
 	"reflect"
 	"strings"
 	"text/tabwriter"
@@ -82,6 +83,10 @@ func (c Column) Print(format Format, i int) string {
 	case Int:
 		return fmt.Sprintf(format.IntFmt, val.(int64))
 	case Float:
+		x := val.(float64)
+		if math.IsNaN(x) {
+			return format.NaN
+		}
 		return fmt.Sprintf(format.FloatFmt, val.(float64))
 	case String:
 		return fmt.Sprintf(format.StringFmt, val.(string))

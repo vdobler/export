@@ -21,7 +21,8 @@ type Format struct {
 	// original location.
 	TimeLoc *time.Location
 
-	NA string // Representation of a missing value.
+	NA  string // Representation of a missing value.
+	NaN string // Representation of a floating point NaN.
 }
 
 // DefaultFormat are the default formating options.
@@ -34,6 +35,7 @@ var DefaultFormat = Format{
 	TimeFmt:   "2006-01-02T15:04:05.999",
 	TimeLoc:   time.Local,
 	NA:        "",
+	NaN:       "",
 }
 
 // RFormat is a useful format for dumping stuff you want to read into R.
@@ -46,4 +48,5 @@ var RFormat = Format{
 	TimeFmt:   "2006-01-02 15:04:05",
 	TimeLoc:   time.Local,
 	NA:        "NA",
+	NaN:       "NA",
 }
