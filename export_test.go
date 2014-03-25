@@ -12,100 +12,9 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"text/tabwriter"
 	"time"
 )
-
-type Obs struct {
-	Age     int
-	Origin  string
-	Weight  float64
-	Height  float64
-	Special []byte
-}
-
-func (o Obs) BMI() float64 {
-	return o.Weight / (o.Height * o.Height)
-}
-
-func (o Obs) Group() int {
-	return 10*(o.Age/10) + 5
-}
-
-func (o Obs) Fancy() (int, error) {
-	if o.Height < 1.65 {
-		return 0, fmt.Errorf("too small (was %.2f)", o.Height)
-	}
-	return int(100 * math.Sqrt(o.Height-1.65)), nil
-}
-
-func (o Obs) Country() string {
-	o2c := map[string]string{
-		"ch": "Schweiz",
-		"de": "Deutschland",
-		"uk": "England",
-	}
-	return o2c[o.Origin]
-}
-
-func (o Obs) IsEU() bool {
-	return o.Origin != "ch"
-}
-
-var measurement = []Obs{
-	Obs{Age: 20, Origin: "de", Weight: 80, Height: 1.88},
-	Obs{Age: 22, Origin: "de", Weight: 85, Height: 1.85},
-	Obs{Age: 20, Origin: "de", Weight: 90, Height: 1.95},
-	Obs{Age: 25, Origin: "de", Weight: 90, Height: 1.72},
-
-	Obs{Age: 20, Origin: "ch", Weight: 77, Height: 1.78},
-	Obs{Age: 20, Origin: "ch", Weight: 82, Height: 1.75},
-	Obs{Age: 28, Origin: "ch", Weight: 85, Height: 1.80},
-	Obs{Age: 20, Origin: "ch", Weight: 84, Height: 1.62},
-
-	Obs{Age: 31, Origin: "de", Weight: 85, Height: 1.88},
-	Obs{Age: 30, Origin: "de", Weight: 90, Height: 1.85},
-	Obs{Age: 30, Origin: "de", Weight: 99, Height: 1.95},
-	Obs{Age: 42, Origin: "de", Weight: 95, Height: 1.72},
-
-	Obs{Age: 30, Origin: "ch", Weight: 80, Height: 1.78},
-	Obs{Age: 30, Origin: "ch", Weight: 85, Height: 1.75},
-	Obs{Age: 37, Origin: "ch", Weight: 87, Height: 1.80},
-	Obs{Age: 47, Origin: "ch", Weight: 90, Height: 1.62},
-
-	Obs{Age: 42, Origin: "uk", Weight: 60, Height: 1.68},
-	Obs{Age: 42, Origin: "uk", Weight: 65, Height: 1.65},
-	Obs{Age: 44, Origin: "uk", Weight: 55, Height: 1.52},
-	Obs{Age: 44, Origin: "uk", Weight: 70, Height: 1.72},
-}
-
-func TestCSVExtractor(t *testing.T) {
-	extractor, err := NewExtractor(measurement, "Age", "Origin", "Weight", "BMI", "Fancy", "IsEU")
-	if err != nil {
-		t.Fatalf("Unexpected error: %s", err)
-	}
-
-	d := CSVDumper{
-		Writer:     csv.NewWriter(os.Stdout),
-		OmitHeader: false,
-	}
-
-	d.Dump(extractor, DefaultFormat)
-	TabDumper{Writer: os.Stdout}.Dump(extractor, RFormat)
-}
-
-func TestRVecExtractor(t *testing.T) {
-	extractor, err := NewExtractor(measurement, "Age", "Origin", "BMI", "Fancy", "IsEU")
-	if err != nil {
-		t.Fatalf("Unexpected error: %s", err)
-	}
-
-	d := RVecDumper{
-		Writer: os.Stdout,
-		Name:   "body.data",
-	}
-
-	d.Dump(extractor, RFormat)
-}
 
 var someError = errors.New("some error")
 
@@ -174,6 +83,7 @@ func (s S) WrongReturn() (int, int) {
 
 var time1 = time.Date(2000, 1, 2, 15, 20, 30, 0, time.UTC)
 var time2 = time.Date(2000, 1, 2, 3, 20, 30, 0, time.UTC)
+var time3 = time.Date(2009, 12, 28, 9, 45, 0, 0, time.UTC)
 
 var ss = []S{
 	S{true, 23, 45.67, "Hello World!", time1, nil},
@@ -289,15 +199,18 @@ func TestBadColumn(t *testing.T) {
 }
 
 func TestBind(t *testing.T) {
-	extractor, err := NewExtractor(measurement, "Age", "Origin")
+	data := []struct{ A int }{
+		{0}, {2}, {4}, {6}, {8}, {10},
+	}
+	extractor, err := NewExtractor(data, "A")
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
 
-	short := measurement[0:5]
+	short := data[1:4]
 	extractor.Bind(short)
-	if extractor.N != 5 {
-		t.Errorf("Expected length 5 after rebinding, got %d", extractor.N)
+	if extractor.N != 3 {
+		t.Errorf("Got %d after rebinding, want 3", extractor.N)
 	}
 }
 
@@ -311,7 +224,37 @@ func TestPointerFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
-	TabDumper{Writer: os.Stdout}.Dump(extractor, RFormat)
+
+	if extractor.N != 3 {
+		t.Fatalf("Got %d elements, want 3", extractor.N)
+	}
+
+	if v := extractor.Columns[0].Value(0); v == nil {
+		t.Errorf("0: Unexpected nil")
+	} else {
+		g, ok := v.(int64)
+		if !ok {
+			t.Errorf("0: Got %v, want int", v)
+		} else if g != 1 {
+			t.Errorf("0: Got %d, want 1", g)
+		}
+	}
+
+	if v := extractor.Columns[0].Value(1); v != nil {
+		t.Errorf("1: Got %v, want nil", v)
+	}
+
+	if v := extractor.Columns[0].Value(2); v == nil {
+		t.Errorf("2: Unexpected nil")
+	} else {
+		g, ok := v.(int64)
+		if !ok {
+			t.Errorf("2: Got %v, want int", v)
+		} else if g != 2 {
+			t.Errorf("2: Got %d, want 2", g)
+		}
+	}
+
 }
 
 func TestSliceOfPointers(t *testing.T) {
@@ -326,7 +269,10 @@ func TestSliceOfPointers(t *testing.T) {
 		t.Fatalf("Unexpected error: %s", err)
 	}
 
-	TabDumper{Writer: os.Stdout}.Dump(extractor, RFormat)
+	w := new(tabwriter.Writer)
+	w.Init(os.Stdout, 1, 8, 1, ' ', 0)
+	TabDumper{Writer: w}.Dump(extractor, RFormat)
+	w.Flush()
 }
 
 type T struct {
@@ -496,4 +442,45 @@ func TestAccessRetrieve(t *testing.T) {
 			t.Errorf("got %d", g)
 		}
 	}
+}
+
+// -------------------------------------------------------------------------
+
+var table = []S{
+	S{true, 12, 3.14149, "Hello", time1, nil},
+	S{true, 14, 2.71828, "World", time2, nil},
+	S{false, 14, math.NaN(), "Go", time1, nil},
+	S{false, 16, 6.02214e23, "A Lot", time3, nil},
+}
+
+func TestCSVExtractor(t *testing.T) {
+	extractor, err := NewExtractor(table, "B", "I", "F", "S", "T")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+
+	d := CSVDumper{
+		Writer:     csv.NewWriter(os.Stdout),
+		OmitHeader: false,
+	}
+
+	d.Dump(extractor, DefaultFormat)
+	w := new(tabwriter.Writer)
+	w.Init(os.Stdout, 1, 8, 1, ' ', 0)
+	TabDumper{Writer: w}.Dump(extractor, RFormat)
+	w.Flush()
+}
+
+func TestRVecExtractor(t *testing.T) {
+	extractor, err := NewExtractor(table, "B", "I", "F", "S", "T")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+
+	d := RVecDumper{
+		Writer: os.Stdout,
+		Name:   "body.data",
+	}
+
+	d.Dump(extractor, RFormat)
 }

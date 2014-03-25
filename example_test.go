@@ -7,6 +7,7 @@ package export
 import (
 	"errors"
 	"os"
+	"text/tabwriter"
 	"time"
 )
 
@@ -58,8 +59,11 @@ func Example() {
 		panic(err.Error())
 	}
 
-	tab := TabDumper{Writer: os.Stdout}
+	w := new(tabwriter.Writer)
+	w.Init(os.Stdout, 1, 8, 1, ' ', 0)
+	tab := TabDumper{Writer: w}
 	tab.Dump(exp, DefaultFormat)
+	w.Flush()
 
 	// Output:
 	// Flt  Str   IntP Method1 Method2 Start               Unix

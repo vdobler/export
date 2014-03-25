@@ -132,34 +132,33 @@ func (d CSVDumper) Dump(e *Extractor, format Format) error {
 	return d.Writer.Error()
 }
 
+// TabDumper dumps the value to a tabwriter.
 type TabDumper struct {
-	Writer io.Writer
-	Flags  uint
+	// Writer is the tabwriter to be used.
+	Writer     *tabwriter.Writer
+	OmitHeader bool // OmitHeader suppresses the header line in the generated CSV.
 }
 
-// Dump dumps the fields from e to d.
+// Dump dumps the fields from e to d. Dump does not call Flush on the
+// underlying tabwriter.
 func (d TabDumper) Dump(e *Extractor, format Format) error {
-	w := new(tabwriter.Writer)
-	w.Init(d.Writer, 1, 8, 1, ' ', d.Flags)
-	for i, field := range e.Columns {
-		if i == 0 {
-			fmt.Fprintf(w, "%s", field.Name)
-		} else {
-			fmt.Fprintf(w, "\t%s", field.Name)
+	if !d.OmitHeader {
+		ff := "%s"
+		for _, field := range e.Columns {
+			fmt.Fprintf(d.Writer, ff, field.Name)
+			ff = "\t%s"
 		}
 	}
-	fmt.Fprintln(w)
+	fmt.Fprintln(d.Writer)
 	for r := 0; r < e.N; r++ {
-		for i, field := range e.Columns {
-			if i == 0 {
-				fmt.Fprintf(w, "%s", field.Print(format, r))
-			} else {
-				fmt.Fprintf(w, "\t%s", field.Print(format, r))
-			}
+		ff := "%s"
+		for _, field := range e.Columns {
+			fmt.Fprintf(d.Writer, ff, field.Print(format, r))
+			ff = "\t%s"
 		}
-		fmt.Fprintln(w)
+		fmt.Fprintln(d.Writer)
 	}
-	w.Flush()
+
 	return nil
 }
 
