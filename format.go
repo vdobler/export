@@ -1,4 +1,4 @@
-// Copyright 2014 Volker DObler. All rights reserved.
+// Copyright 2014 Volker Dobler. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -44,7 +44,7 @@ var RFormat = Format{
 	False:     "FALSE",
 	IntFmt:    "%d",
 	FloatFmt:  "%.6g",
-	StringFmt: "%s",
+	StringFmt: "%q",
 	TimeFmt:   "2006-01-02 15:04:05",
 	TimeLoc:   time.Local,
 	NA:        "NA",
