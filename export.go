@@ -1,4 +1,4 @@
-// Copyright 2014 Volker DObler. All rights reserved.
+// Copyright 2014 Volker Dobler. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -50,9 +50,9 @@ const (
 	Time
 )
 
-// String returns the name of ft.
-func (ft Type) String() string {
-	return []string{"NA", "Bool", "Int", "Float", "String", "Time"}[ft]
+// String returns the name of t.
+func (t Type) String() string {
+	return []string{"NA", "Bool", "Int", "Float", "String", "Time"}[t]
 }
 
 // Column represents one column in the export.
@@ -98,13 +98,13 @@ func (c Column) Print(format Format, i int) string {
 		return t.Format(format.TimeFmt)
 	}
 
-	return fmt.Sprintf("Ooops: %v", val)
+	return fmt.Sprintf("%v", val)
 }
 
 // -------------------------------------------------------------------------
 // Dumper
 
-// CSVDumper dumps values in CSV format
+// CSVDumper dumps values to a csv writer.
 type CSVDumper struct {
 	Writer     *csv.Writer // The csv.Writer to output the data.
 	OmitHeader bool        // OmitHeader suppresses the header line in the generated CSV.
