@@ -64,7 +64,6 @@ type Column struct {
 	// For errors or nil pointers nil is returned.
 	Value func(i int) interface{}
 
-	mayFail bool   // Pointer fields or erroring methods.
 	access  []step // The steps needed to access the result.
 }
 
@@ -265,21 +264,10 @@ func newSOMExtractor(data interface{}, colSpecs ...string) (*Extractor, error) {
 			return nil, err
 		}
 		last := steps[len(steps)-1]
-		mayFail := false
-		if last.isMethodCall() {
-			if last.mayFail {
-				mayFail = true
-			}
-		} else {
-			if last.indir > 0 {
-				mayFail = true
-			}
-		}
 
 		field := Column{
 			Name:    last.name,
 			Type:    superType(last.typ),
-			mayFail: mayFail,
 			access:  steps,
 		}
 		ex.Columns = append(ex.Columns, field)
@@ -316,7 +304,7 @@ func (e *Extractor) bindSOM(data interface{}) {
 }
 
 // superType returns our types which group Go's low level types.
-// A Go type which cannot be handled will yield NA.
+// A Go type which cannot be handled will yield a Type of NA.
 // TODO: this might be the worst name possible for this function.
 func superType(t reflect.Type) Type {
 	switch t.Kind() {
