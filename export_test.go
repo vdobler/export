@@ -25,7 +25,11 @@ type S struct {
 	S string
 	T time.Time
 	E error
+	N Named
 }
+
+type Named uint16
+type Named32 uint32
 
 func (s S) BM() bool      { return s.B }
 func (s S) IM() int       { return s.I }
@@ -33,6 +37,7 @@ func (s S) FM() float64   { return s.F }
 func (s S) SM() string    { return s.S }
 func (s S) TM() time.Time { return s.T }
 func (s S) EM() error     { return s.E }
+func (s S) NM() Named32   { return Named32(s.N * 2) }
 
 func (s S) BME() (bool, error) {
 	if s.B {
@@ -86,14 +91,15 @@ var time2 = time.Date(2000, 1, 2, 3, 20, 30, 0, time.UTC)
 var time3 = time.Date(2009, 12, 28, 9, 45, 0, 0, time.UTC)
 
 var ss = []S{
-	S{true, 23, 45.67, "Hello World!", time1, nil},
-	S{false, 9, 8.76, "Short", time2, nil},
+	S{true, 23, 45.67, "Hello World!", time1, nil, 123},
+	S{false, 9, 8.76, "Short", time2, nil, 456},
 }
 
 func TestExtractor(t *testing.T) {
 	fieldNames := []string{"B", "I", "F", "S", "T",
 		"BM", "IM", "FM", "SM", "TM",
-		"BME", "IME", "FME", "SME", "TME"}
+		"BME", "IME", "FME", "SME", "TME",
+	}
 	extractor, err := NewExtractor(ss, fieldNames...)
 
 	if err != nil {
@@ -189,6 +195,22 @@ func TestExtractor(t *testing.T) {
 
 }
 
+func TestAlias(t *testing.T) {
+	extractor, err := NewExtractor(ss, "N", "NM")
+	if err != nil {
+		t.Fatalf("Unexpected error: %s", err)
+	}
+
+	if g := extractor.Columns[0].Value(0); g.(int64) != 123 {
+		t.Errorf("N:0, got %v, want 123", g)
+	}
+
+	if g := extractor.Columns[1].Value(0); g.(int64) != 246 {
+		t.Errorf("N:0, got %v, want 246", g)
+	}
+
+}
+
 func TestBadColumn(t *testing.T) {
 	for i, name := range []string{"Unexisting", "E", "EM", "EME", "ExtraArg", "WrongReturn"} {
 		_, err := NewExtractor(ss, name)
@@ -259,8 +281,8 @@ func TestPointerFields(t *testing.T) {
 
 func TestSliceOfPointers(t *testing.T) {
 	data := []*S{
-		&S{true, 23, 45.67, "Hello World!", time1, nil},
-		&S{false, 9, 8.76, "Short", time2, nil},
+		&S{true, 23, 45.67, "Hello World!", time1, nil, 123},
+		&S{false, 9, 8.76, "Short", time2, nil, 456},
 		nil,
 	}
 
@@ -300,7 +322,7 @@ func (t TTT) GTT() TT          { return TT{} }
 
 func TestBuildSteps(t *testing.T) {
 	typ := reflect.TypeOf(T{})
-	steps, err := buildSteps(typ, "B.F.E")
+	steps, err, _, _ := buildSteps(typ, "B.F.E")
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -315,7 +337,7 @@ func TestBuildSteps(t *testing.T) {
 		t.Errorf("E should be field, got method")
 	}
 
-	steps, err = buildSteps(typ, "APP")
+	steps, err, _, _ = buildSteps(typ, "APP")
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -331,27 +353,27 @@ func TestBuildSteps(t *testing.T) {
 func TestBuildStepsErrors(t *testing.T) {
 	typ := reflect.TypeOf(T{})
 
-	_, err := buildSteps(typ, "X")
+	_, err, _, _ := buildSteps(typ, "X")
 	if err == nil {
 		t.Errorf("Expected no such field or method X.")
 	}
 
-	_, err = buildSteps(typ, "B")
+	_, err, _, _ = buildSteps(typ, "B")
 	if err == nil {
 		t.Errorf("Expected B to be of unusable typ for final element.")
 	}
 
-	_, err = buildSteps(typ, "B.X")
+	_, err, _, _ = buildSteps(typ, "B.X")
 	if err == nil {
 		t.Errorf("Expected no such field or method X.")
 	}
 
-	_, err = buildSteps(typ, "B.Fxyz.E")
+	_, err, _, _ = buildSteps(typ, "B.Fxyz.E")
 	if err == nil {
 		t.Errorf("Expected wrong method signature for Fxyz")
 	}
 
-	_, err = buildSteps(typ, "B.FE.GTT")
+	_, err, _, _ = buildSteps(typ, "B.FE.GTT")
 	if err == nil {
 		t.Errorf("Expected wrong return type method GTT for last element.")
 	}
@@ -373,7 +395,7 @@ func TestAccessRetrieve(t *testing.T) {
 	ap := step{name: "AP", field: 1, indir: 1}
 	app := step{name: "APP", field: 2, indir: 2}
 
-	if w := retrieve(v, []step{a}, 0); w == nil {
+	if w := retrieve(v, []step{a}, 0, Int, false); w == nil {
 		t.Fatalf("Unexpected nil")
 	} else {
 		if g := w.(int64); g != 11 {
@@ -426,7 +448,7 @@ func TestAccessRetrieve(t *testing.T) {
 	m = reflect.TypeOf(TT{}).Method(1).Func
 	f := step{name: "f", method: m}
 	e := step{name: "E", field: 0}
-	if w := retrieve(v, []step{b, f, e}, 0); w == nil {
+	if w := retrieve(v, []step{b, f, e}, 0, String, false); w == nil {
 		t.Fatalf("Unexpected nil")
 	} else {
 		if g := w.(string); g != "Hello" {
@@ -447,10 +469,10 @@ func TestAccessRetrieve(t *testing.T) {
 // -------------------------------------------------------------------------
 
 var table = []S{
-	S{true, 12, 3.14149, "Hello", time1, nil},
-	S{true, 14, 2.71828, "World", time2, nil},
-	S{false, 14, math.NaN(), "Go", time1, nil},
-	S{false, 16, 6.02214e23, "A Lot", time3, nil},
+	S{true, 12, 3.14149, "Hello", time1, nil, 123},
+	S{true, 14, 2.71828, "World", time2, nil, 456},
+	S{false, 14, math.NaN(), "Go", time1, nil, 789},
+	S{false, 16, 6.02214e23, "A Lot", time3, nil, 246},
 }
 
 func TestCSVExtractor(t *testing.T) {

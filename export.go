@@ -64,7 +64,8 @@ type Column struct {
 	// For errors or nil pointers nil is returned.
 	Value func(i int) interface{}
 
-	access  []step // The steps needed to access the result.
+	access   []step // The steps needed to access the result.
+	unsigned bool   // For Type == Int
 }
 
 // Print the i'th entry of column c given format.
@@ -259,16 +260,17 @@ func newSOMExtractor(data interface{}, colSpecs ...string) (*Extractor, error) {
 	}
 
 	for _, spec := range colSpecs {
-		steps, err := buildSteps(typ, spec)
+		steps, err, rType, unsigned := buildSteps(typ, spec)
 		if err != nil {
 			return nil, err
 		}
 		last := steps[len(steps)-1]
 
 		field := Column{
-			Name:    last.name,
-			Type:    superType(last.typ),
-			access:  steps,
+			Name:     last.name,
+			Type:     rType,
+			access:   steps,
+			unsigned: unsigned,
 		}
 		ex.Columns = append(ex.Columns, field)
 	}
@@ -297,8 +299,10 @@ func (e *Extractor) bindSOM(data interface{}) {
 	e.N = v.Len()
 	for fn, field := range e.Columns {
 		access := field.access
+		typ := field.Type
+		unsigned := field.unsigned
 		e.Columns[fn].Value = func(i int) interface{} {
-			return retrieve(v.Index(i), access, e.indir)
+			return retrieve(v.Index(i), access, e.indir, typ, unsigned)
 		}
 	}
 }
@@ -310,7 +314,8 @@ func superType(t reflect.Type) Type {
 	switch t.Kind() {
 	case reflect.Bool:
 		return Bool
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return Int
 	case reflect.String:
 		return String
@@ -338,13 +343,15 @@ type step struct {
 	method  reflect.Value // the function to call, if zero: not a fn call but a field access
 	field   int           // field number if method is zero
 	mayFail bool          // for methods which return (result, error)
-	typ     reflect.Type
+	// typ     reflect.Type
 }
 
 func (s step) isMethodCall() bool { return s.method.IsValid() }
 
 // buildSteps constructs a slice of steps to access the given elem in typ.
-func buildSteps(typ reflect.Type, elem string) ([]step, error) {
+// The Type of the final element is returend and whether the final element
+// has to be converted first.
+func buildSteps(typ reflect.Type, elem string) ([]step, error, Type, bool) {
 	var steps []step
 	elements := strings.Split(elem, ".")
 	for e, cur := range elements {
@@ -362,9 +369,9 @@ func buildSteps(typ reflect.Type, elem string) ([]step, error) {
 				}
 				t := superType(typ)
 				if last && t == NA {
-					return steps, fmt.Errorf("export: cannot use field %s of type %v as final element", cur, typ)
+					return steps, fmt.Errorf("export: cannot use field %s of type %v as final element", cur, typ), NA, false
 				}
-				s := step{name: cur, field: f, indir: indir, typ: typ}
+				s := step{name: cur, field: f, indir: indir}
 				steps = append(steps, s)
 				found = true
 				break
@@ -377,19 +384,19 @@ func buildSteps(typ reflect.Type, elem string) ([]step, error) {
 		// Methods next
 		m, ok := typ.MethodByName(cur)
 		if !ok {
-			return steps, fmt.Errorf("export: no field or method %s in %T", cur, typ)
+			return steps, fmt.Errorf("export: no field or method %s in %T", cur, typ), NA, false
 		}
 		// Look for methods with signatures like
-		//   func(elemtype) [int,string,float,time]
+		//   func(elemtype) [bool,int,string,float,time]
 		// or
-		//   func(elemtype) ([int,string,float,time], error)
+		//   func(elemtype) ([bool,int,string,float,time], error)
 		mt := m.Type
 		numOut := mt.NumOut()
 		if mt.NumIn() != 1 || (numOut != 1 && numOut != 2) {
-			return steps, fmt.Errorf("export: cannot use method %s of %T", cur, typ)
+			return steps, fmt.Errorf("export: cannot use method %s of %T", cur, typ), NA, false
 		}
 		if last && superType(mt.Out(0)) == NA {
-			return steps, fmt.Errorf("export: cannot use methods %s return of type %v as final element", cur, mt.Out(0))
+			return steps, fmt.Errorf("export: cannot use methods %s return of type %v as final element", cur, mt.Out(0)), NA, false
 		}
 		mayFail := false
 		if numOut == 2 {
@@ -397,15 +404,23 @@ func buildSteps(typ reflect.Type, elem string) ([]step, error) {
 				mt.Out(1).Implements(errorInterfaceType) {
 				mayFail = true
 			} else {
-				return steps, fmt.Errorf("export: cannot use method %s of %T", cur, typ)
+				return steps, fmt.Errorf("export: cannot use method %s of %T", cur, typ), NA, false
 			}
 		}
 		typ = mt.Out(0)
-		s := step{name: cur, method: m.Func, mayFail: mayFail, typ: typ}
+		s := step{name: cur, method: m.Func, mayFail: mayFail} // , typ: typ}
 		steps = append(steps, s)
 	}
 
-	return steps, nil
+	finalType := superType(typ)
+	unsigned := false
+	if finalType == Int {
+		switch typ.Kind() {
+		case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			unsigned = true
+		}
+	}
+	return steps, nil, finalType, unsigned
 }
 
 // access drills down in v according to the given steps.
@@ -443,7 +458,7 @@ func access(v reflect.Value, steps []step) (reflect.Value, error) {
 // indir is the primary number of indirections to take.
 // If no value was found due to nil pointers or method failures
 // nil is returned.
-func retrieve(v reflect.Value, steps []step, indir int) interface{} {
+func retrieve(v reflect.Value, steps []step, indir int, typ Type, unsigned bool) interface{} {
 	for i := 0; i < indir; i++ {
 		if v.IsNil() {
 			return nil
@@ -455,11 +470,15 @@ func retrieve(v reflect.Value, steps []step, indir int) interface{} {
 	if err != nil {
 		return nil
 	}
-	switch superType(res.Type()) {
+	switch typ {
 	case Bool:
 		return res.Bool()
 	case Int:
-		return res.Int()
+		if unsigned {
+			return int64(res.Uint())
+		} else {
+			return res.Int()
+		}
 	case Float:
 		return res.Float()
 	case String:

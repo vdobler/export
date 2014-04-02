@@ -540,7 +540,7 @@ func TestRPlot(t *testing.T) {
 		t.SkipNow()
 	}
 
-	extractor, err := NewExtractor(diamonds, "Carat", "Cut", "Color" /* "Clarity.String", */, "Price")
+	extractor, err := NewExtractor(diamonds, "Carat", "Cut", "Color", "Clarity", "Price")
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -560,7 +560,7 @@ func TestRPlot(t *testing.T) {
 	go func() {
 		fmt.Fprintf(stdin, `
 library(ggplot2)
-p <- ggplot(my.diamonds, aes(Carat, Price))
+p <- ggplot(my.diamonds, aes(Carat, Price, color=Cut))
 p + geom_point()
 Sys.sleep(2)
 `)
