@@ -260,7 +260,7 @@ func newSOMExtractor(data interface{}, colSpecs ...string) (*Extractor, error) {
 	}
 
 	for _, spec := range colSpecs {
-		steps, err, rType, unsigned := buildSteps(typ, spec)
+		steps, rType, unsigned, err := buildSteps(typ, spec)
 		if err != nil {
 			return nil, err
 		}
@@ -358,7 +358,7 @@ func (s step) isMethodCall() bool { return s.method.IsValid() }
 // buildSteps constructs a slice of steps to access the given elem in typ.
 // The Type of the final element is returend and whether the final element
 // has to be converted first.
-func buildSteps(typ reflect.Type, elem string) ([]step, error, Type, bool) {
+func buildSteps(typ reflect.Type, elem string) ([]step, Type, bool, error) {
 	var steps []step
 	elements := strings.Split(elem, ".")
 	for _, cur := range elements {
@@ -392,7 +392,8 @@ func buildSteps(typ reflect.Type, elem string) ([]step, error, Type, bool) {
 		// Methods next
 		m, ok := typ.MethodByName(cur)
 		if !ok {
-			return steps, fmt.Errorf("export: no field or method %s in %T", cur, typ), NA, false
+			return nil, NA, false,
+				fmt.Errorf("export: no field or method %s in %T", cur, typ)
 		}
 		// Look for methods with signatures like
 		//   func(elemtype) [bool,int,string,float,time]
@@ -401,7 +402,8 @@ func buildSteps(typ reflect.Type, elem string) ([]step, error, Type, bool) {
 		mt := m.Type
 		numOut := mt.NumOut()
 		if mt.NumIn() != 1 || (numOut != 1 && numOut != 2) {
-			return steps, fmt.Errorf("export: cannot use method %s of %T", cur, typ), NA, false
+			return nil, NA, false,
+				fmt.Errorf("export: cannot use method %s of %T", cur, typ)
 		}
 		mayFail := false
 		if numOut == 2 {
@@ -409,7 +411,8 @@ func buildSteps(typ reflect.Type, elem string) ([]step, error, Type, bool) {
 				mt.Out(1).Implements(errorInterface) {
 				mayFail = true
 			} else {
-				return steps, fmt.Errorf("export: cannot use method %s of %T", cur, typ), NA, false
+				return nil, NA, false,
+					fmt.Errorf("export: cannot use method %s of %T", cur, typ)
 			}
 		}
 		typ = mt.Out(0)
@@ -435,7 +438,8 @@ func buildSteps(typ reflect.Type, elem string) ([]step, error, Type, bool) {
 			}
 			steps = append(steps, s)
 		} else {
-			return steps, fmt.Errorf("export: cannot use type %T", typ), NA, false
+			return steps, NA, false,
+				fmt.Errorf("export: cannot use type %T", typ)
 		}
 	} else if finalType == Int {
 		switch typ.Kind() {
@@ -444,7 +448,7 @@ func buildSteps(typ reflect.Type, elem string) ([]step, error, Type, bool) {
 		}
 	}
 
-	return steps, nil, finalType, unsigned
+	return steps, finalType, unsigned, nil
 }
 
 // access drills down in v according to the given steps.

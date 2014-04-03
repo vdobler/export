@@ -322,7 +322,7 @@ func (t TTT) GTT() TT          { return TT{} }
 
 func TestBuildSteps(t *testing.T) {
 	typ := reflect.TypeOf(T{})
-	steps, err, _, _ := buildSteps(typ, "B.F.E")
+	steps, _, _, err := buildSteps(typ, "B.F.E")
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -337,7 +337,7 @@ func TestBuildSteps(t *testing.T) {
 		t.Errorf("E should be field, got method")
 	}
 
-	steps, err, _, _ = buildSteps(typ, "APP")
+	steps, _, _, err = buildSteps(typ, "APP")
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -353,27 +353,27 @@ func TestBuildSteps(t *testing.T) {
 func TestBuildStepsErrors(t *testing.T) {
 	typ := reflect.TypeOf(T{})
 
-	_, err, _, _ := buildSteps(typ, "X")
+	_, _, _, err := buildSteps(typ, "X")
 	if err == nil {
 		t.Errorf("Expected no such field or method X.")
 	}
 
-	_, err, _, _ = buildSteps(typ, "B")
+	_, _, _, err = buildSteps(typ, "B")
 	if err == nil {
 		t.Errorf("Expected B to be of unusable typ for final element.")
 	}
 
-	_, err, _, _ = buildSteps(typ, "B.X")
+	_, _, _, err = buildSteps(typ, "B.X")
 	if err == nil {
 		t.Errorf("Expected no such field or method X.")
 	}
 
-	_, err, _, _ = buildSteps(typ, "B.Fxyz.E")
+	_, _, _, err = buildSteps(typ, "B.Fxyz.E")
 	if err == nil {
 		t.Errorf("Expected wrong method signature for Fxyz")
 	}
 
-	_, err, _, _ = buildSteps(typ, "B.FE.GTT")
+	_, _, _, err = buildSteps(typ, "B.FE.GTT")
 	if err == nil {
 		t.Errorf("Expected wrong return type method GTT for last element.")
 	}
