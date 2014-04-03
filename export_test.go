@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"text/tabwriter"
 	"time"
@@ -97,8 +98,8 @@ var ss = []S{
 
 func TestExtractor(t *testing.T) {
 	fieldNames := []string{"B", "I", "F", "S", "T",
-		"BM", "IM", "FM", "SM", "TM",
-		"BME", "IME", "FME", "SME", "TME",
+		"BM()", "IM()", "FM()", "SM()", "TM()",
+		"BME()", "IME()", "FME()", "SME()", "TME()",
 	}
 	extractor, err := NewExtractor(ss, fieldNames...)
 
@@ -109,6 +110,9 @@ func TestExtractor(t *testing.T) {
 	// Fields are in order and have proper type.
 	for i, name := range fieldNames {
 		field := extractor.Columns[i]
+		if strings.HasSuffix(name, "()") {
+			name = name[:len(name)-2]
+		}
 		if field.Name != name {
 			t.Errorf("Column %d, got name %s, want %s", i, field.Name, name)
 		}
@@ -196,7 +200,7 @@ func TestExtractor(t *testing.T) {
 }
 
 func TestAlias(t *testing.T) {
-	extractor, err := NewExtractor(ss, "N", "NM")
+	extractor, err := NewExtractor(ss, "N", "NM()")
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -322,7 +326,7 @@ func (t TTT) GTT() TT          { return TT{} }
 
 func TestBuildSteps(t *testing.T) {
 	typ := reflect.TypeOf(T{})
-	steps, _, _, err := buildSteps(typ, "B.F.E")
+	steps, _, _, err := buildSteps(typ, "B.F().E")
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}

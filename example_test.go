@@ -53,8 +53,8 @@ func Example() {
 	}
 	exp, err := NewExtractor(data,
 		"Flt", "Str", "IntP", // Accessing of fields and pointer fields
-		"Method1", "Method2", // Accessing results of methods.
-		"Other.Start", "OtherP.Unix") // Accessing nested elements.
+		"Method1()", "Method2()", // Accessing results of methods.
+		"Other.Start", "OtherP.Unix()") // Accessing nested elements.
 	if err != nil {
 		panic(err.Error())
 	}

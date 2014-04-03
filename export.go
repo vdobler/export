@@ -362,64 +362,19 @@ func buildSteps(typ reflect.Type, elem string) ([]step, Type, bool, error) {
 	var steps []step
 	elements := strings.Split(elem, ".")
 	for _, cur := range elements {
-		found := false
-
-		// Fields on structs.
-		if typ.Kind() == reflect.Struct {
-			for f := 0; f < typ.NumField(); f++ {
-				if typ.Field(f).Name == cur {
-					typ = typ.Field(f).Type
-					indir := 0
-					for typ.Kind() == reflect.Ptr {
-						typ = typ.Elem()
-						indir++
-					}
-					s := step{
-						name:  cur,
-						field: f,
-						indir: indir,
-					}
-					steps = append(steps, s)
-					found = true
-					break
-				}
+		var s step
+		var err error
+		if strings.HasSuffix(cur, "()") {
+			cur = cur[:len(cur)-2]
+			s, typ, err = methodStep(cur, typ)
+			if err != nil {
+				return nil, NA, false, err
 			}
-		}
-		if found {
-			continue
-		}
-
-		// Methods next
-		m, ok := typ.MethodByName(cur)
-		if !ok {
-			return nil, NA, false,
-				fmt.Errorf("export: no field or method %s in %T", cur, typ)
-		}
-		// Look for methods with signatures like
-		//   func(elemtype) [bool,int,string,float,time]
-		// or
-		//   func(elemtype) ([bool,int,string,float,time], error)
-		mt := m.Type
-		numOut := mt.NumOut()
-		if mt.NumIn() != 1 || (numOut != 1 && numOut != 2) {
-			return nil, NA, false,
-				fmt.Errorf("export: cannot use method %s of %T", cur, typ)
-		}
-		mayFail := false
-		if numOut == 2 {
-			if mt.Out(1).Kind() == reflect.Interface &&
-				mt.Out(1).Implements(errorInterface) {
-				mayFail = true
-			} else {
-				return nil, NA, false,
-					fmt.Errorf("export: cannot use method %s of %T", cur, typ)
+		} else {
+			s, typ, err = fieldStep(cur, typ)
+			if err != nil {
+				return nil, NA, false, err
 			}
-		}
-		typ = mt.Out(0)
-		s := step{
-			name:    cur,
-			method:  m.Func,
-			mayFail: mayFail,
 		}
 		steps = append(steps, s)
 	}
@@ -449,6 +404,77 @@ func buildSteps(typ reflect.Type, elem string) ([]step, Type, bool, error) {
 	}
 
 	return steps, finalType, unsigned, nil
+}
+
+// fieldStep tries to construct step on typ with the given field.
+func fieldStep(fieldName string, typ reflect.Type) (step, reflect.Type, error) {
+	if typ.Kind() != reflect.Struct {
+		return step{}, typ, fmt.Errorf("export: type %s is not a struct", typ)
+	}
+
+	var fn int = -1
+	var field reflect.StructField
+	for i := 0; i < typ.NumField(); i++ {
+		if typ.Field(i).Name == fieldName {
+			fn = i
+			field = typ.Field(i)
+			break
+		}
+	}
+	if fn == -1 {
+		return step{}, typ, fmt.Errorf("export: type %s has no field %s",
+			typ, fieldName)
+	}
+
+	typ = field.Type
+	indir := 0
+	for typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+		indir++
+	}
+	s := step{
+		name:  fieldName,
+		field: fn,
+		indir: indir,
+	}
+	return s, typ, nil
+}
+
+// methodStep tries to construct step on typ with the given methodName.
+// It looks for methods with signatures like
+//   func(elemtype) [bool,int,string,float,time]
+// or
+//   func(elemtype) ([bool,int,string,float,time], error)
+func methodStep(methodName string, typ reflect.Type) (step, reflect.Type, error) {
+	m, ok := typ.MethodByName(methodName)
+	if !ok {
+		return step{}, typ,
+			fmt.Errorf("export: no method %s in %s", methodName, typ)
+	}
+
+	mt := m.Type
+	numOut := mt.NumOut()
+	if mt.NumIn() != 1 || (numOut != 1 && numOut != 2) {
+		return step{}, typ, fmt.Errorf("export: cannot use method %s of %s",
+			methodName, typ)
+	}
+	mayFail := false
+	if numOut == 2 {
+		if mt.Out(1).Kind() == reflect.Interface &&
+			mt.Out(1).Implements(errorInterface) {
+			mayFail = true
+		} else {
+			return step{}, typ, fmt.Errorf("export: cannot use method %s of %s",
+				methodName, typ)
+		}
+	}
+	typ = mt.Out(0)
+	s := step{
+		name:    methodName,
+		method:  m.Func,
+		mayFail: mayFail,
+	}
+	return s, typ, nil
 }
 
 // access drills down in v according to the given steps.
