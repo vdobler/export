@@ -336,7 +336,8 @@ func superType(t reflect.Type) Type {
 }
 
 var (
-	errorInterfaceType = reflect.TypeOf((*error)(nil)).Elem()
+	errorInterface    = reflect.TypeOf((*error)(nil)).Elem()
+	stringerInterface = reflect.TypeOf((*fmt.Stringer)(nil)).Elem()
 )
 
 // -------------------------------------------------------------------------
@@ -360,9 +361,8 @@ func (s step) isMethodCall() bool { return s.method.IsValid() }
 func buildSteps(typ reflect.Type, elem string) ([]step, error, Type, bool) {
 	var steps []step
 	elements := strings.Split(elem, ".")
-	for e, cur := range elements {
+	for _, cur := range elements {
 		found := false
-		last := e == len(elements)-1
 
 		// Fields on structs.
 		if typ.Kind() == reflect.Struct {
@@ -374,11 +374,11 @@ func buildSteps(typ reflect.Type, elem string) ([]step, error, Type, bool) {
 						typ = typ.Elem()
 						indir++
 					}
-					t := superType(typ)
-					if last && t == NA {
-						return steps, fmt.Errorf("export: cannot use field %s of type %v as final element", cur, typ), NA, false
+					s := step{
+						name:  cur,
+						field: f,
+						indir: indir,
 					}
-					s := step{name: cur, field: f, indir: indir}
 					steps = append(steps, s)
 					found = true
 					break
@@ -403,31 +403,47 @@ func buildSteps(typ reflect.Type, elem string) ([]step, error, Type, bool) {
 		if mt.NumIn() != 1 || (numOut != 1 && numOut != 2) {
 			return steps, fmt.Errorf("export: cannot use method %s of %T", cur, typ), NA, false
 		}
-		if last && superType(mt.Out(0)) == NA {
-			return steps, fmt.Errorf("export: cannot use methods %s return of type %v as final element", cur, mt.Out(0)), NA, false
-		}
 		mayFail := false
 		if numOut == 2 {
 			if mt.Out(1).Kind() == reflect.Interface &&
-				mt.Out(1).Implements(errorInterfaceType) {
+				mt.Out(1).Implements(errorInterface) {
 				mayFail = true
 			} else {
 				return steps, fmt.Errorf("export: cannot use method %s of %T", cur, typ), NA, false
 			}
 		}
 		typ = mt.Out(0)
-		s := step{name: cur, method: m.Func, mayFail: mayFail} // , typ: typ}
+		s := step{
+			name:    cur,
+			method:  m.Func,
+			mayFail: mayFail,
+		}
 		steps = append(steps, s)
 	}
 
 	finalType := superType(typ)
 	unsigned := false
-	if finalType == Int {
+
+	if finalType == NA {
+		// Maybe typ implements fmt.Stringer in which case we
+		// append an extra String method step.
+		if typ.Implements(stringerInterface) {
+			m, _ := typ.MethodByName("String")
+			s := step{
+				name:   "String",
+				method: m.Func,
+			}
+			steps = append(steps, s)
+		} else {
+			return steps, fmt.Errorf("export: cannot use type %T", typ), NA, false
+		}
+	} else if finalType == Int {
 		switch typ.Kind() {
 		case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 			unsigned = true
 		}
 	}
+
 	return steps, nil, finalType, unsigned
 }
 
