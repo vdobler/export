@@ -264,10 +264,16 @@ func newSOMExtractor(data interface{}, colSpecs ...string) (*Extractor, error) {
 		if err != nil {
 			return nil, err
 		}
-		last := steps[len(steps)-1]
+		name := ""
+		for s := range steps {
+			if s > 0 {
+				name += "."
+			}
+			name += steps[s].name
+		}
 
 		field := Column{
-			Name:     last.name,
+			Name:     name,
 			Type:     rType,
 			access:   steps,
 			unsigned: unsigned,
@@ -358,23 +364,25 @@ func buildSteps(typ reflect.Type, elem string) ([]step, error, Type, bool) {
 		found := false
 		last := e == len(elements)-1
 
-		// Fields first.
-		for f := 0; f < typ.NumField(); f++ {
-			if typ.Field(f).Name == cur {
-				typ = typ.Field(f).Type
-				indir := 0
-				for typ.Kind() == reflect.Ptr {
-					typ = typ.Elem()
-					indir++
+		// Fields on structs.
+		if typ.Kind() == reflect.Struct {
+			for f := 0; f < typ.NumField(); f++ {
+				if typ.Field(f).Name == cur {
+					typ = typ.Field(f).Type
+					indir := 0
+					for typ.Kind() == reflect.Ptr {
+						typ = typ.Elem()
+						indir++
+					}
+					t := superType(typ)
+					if last && t == NA {
+						return steps, fmt.Errorf("export: cannot use field %s of type %v as final element", cur, typ), NA, false
+					}
+					s := step{name: cur, field: f, indir: indir}
+					steps = append(steps, s)
+					found = true
+					break
 				}
-				t := superType(typ)
-				if last && t == NA {
-					return steps, fmt.Errorf("export: cannot use field %s of type %v as final element", cur, typ), NA, false
-				}
-				s := step{name: cur, field: f, indir: indir}
-				steps = append(steps, s)
-				found = true
-				break
 			}
 		}
 		if found {
