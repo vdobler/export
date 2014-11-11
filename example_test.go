@@ -66,7 +66,7 @@ func Example() {
 	w.Flush()
 
 	// Output:
-	// Flt  Str   IntP Method1 Method2 Start               Unix
+	// Flt  Str   IntP Method1 Method2 Other.Start         OtherP.Unix
 	// 3.14 Hello 8    3       false   2009-12-28T09:45:00 1418428799
 	// 2.72 Go         3       false   2014-12-13T00:59:59 4070908860
 	// 1.41       9    1               2099-01-01T01:01:00
