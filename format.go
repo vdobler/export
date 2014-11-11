@@ -25,25 +25,40 @@ type Format struct {
 	NaN string // Representation of a floating point NaN.
 }
 
-// DefaultFormat are the default formating options.
+// DefaultFormat contains default formating options.
 var DefaultFormat = Format{
 	True:      "true",
 	False:     "false",
 	IntFmt:    "%d",
-	FloatFmt:  "%.5g",
+	FloatFmt:  "%.4g",
 	StringFmt: "%s",
-	TimeFmt:   "2006-01-02T15:04:05.999",
+	TimeFmt:   "2006-01-02T15:04:05",
 	TimeLoc:   time.Local,
 	NA:        "",
 	NaN:       "",
 }
 
-// RFormat is a useful format for dumping stuff you want to read into R.
+// PreciseFormat contains formatin options which tries to preserve
+// the original data very well.
+var PreciseFormat = Format{
+	True:      "true",
+	False:     "false",
+	IntFmt:    "%d",
+	FloatFmt:  "%g",
+	StringFmt: "%q",
+	TimeFmt:   time.RFC3339Nano,
+	TimeLoc:   nil,
+	NA:        "",
+	NaN:       "NaN",
+}
+
+// RFormat contains formating options usefull if you want to
+// read the generated dumps into R.
 var RFormat = Format{
 	True:      "TRUE",
 	False:     "FALSE",
 	IntFmt:    "%d",
-	FloatFmt:  "%.6g",
+	FloatFmt:  "%.9g",
 	StringFmt: "%q",
 	TimeFmt:   "2006-01-02 15:04:05",
 	TimeLoc:   time.Local,

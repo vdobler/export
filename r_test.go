@@ -537,7 +537,7 @@ var diamonds = []Diamond{
 
 func TestRPlot(t *testing.T) {
 	if !*doR {
-		t.SkipNow()
+		t.Skip("Skipped test using R. Enable with the -R flag.")
 	}
 
 	extractor, err := NewExtractor(diamonds,
@@ -553,8 +553,8 @@ func TestRPlot(t *testing.T) {
 		t.Fatalf("Unexpected error: %s", err)
 	}
 	d := RVecDumper{
-		Writer: stdin,
-		Name:   "my.diamonds",
+		Writer:    stdin,
+		DataFrame: "my.diamonds",
 	}
 	d.Dump(extractor, RFormat)
 

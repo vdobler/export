@@ -7,7 +7,9 @@
 // Export allows to dump tabular data in different output formats.
 // The main type is Exporter which determines which data is output and in
 // which order. An Exporter is constructed from (almost) any slice type
-// and may access nested fields.
+// and may access nested fields and/or methods of the slice elements.
+//
+//
 //
 // Export can export the following Go types:
 //   - bool
@@ -21,202 +23,27 @@
 package export
 
 import (
-	"encoding/csv"
 	"fmt"
-	"io"
 	"math"
 	"reflect"
 	"strings"
-	"text/tabwriter"
 	"time"
 )
-
-func isTime(x reflect.Type) bool {
-	return x.PkgPath() == "time" && x.Kind() == reflect.Struct && x.Name() == "Time"
-}
-
-// -------------------------------------------------------------------------
-// Type and Column
-
-// Type represents the basic type of a column.
-type Type uint
-
-const (
-	NA Type = iota
-	Bool
-	Int
-	Float
-	String
-	Time
-)
-
-// String returns the name of t.
-func (t Type) String() string {
-	return []string{"NA", "Bool", "Int", "Float", "String", "Time"}[t]
-}
-
-// Column represents one column in the export.
-type Column struct {
-	Name string // The name of the column.
-	Type Type   // The type of the column.
-
-	// Value returns the i'th value in this column.
-	// For errors or nil pointers nil is returned.
-	Value func(i int) interface{}
-
-	access   []step // The steps needed to access the result.
-	unsigned bool   // For Type == Int
-}
-
-// Print the i'th entry of column c given format.
-func (c Column) Print(format Format, i int) string {
-	val := c.Value(i)
-	if val == nil {
-		return format.NA
-	}
-	switch c.Type {
-	case Bool:
-		if val.(bool) {
-			return format.True
-		}
-		return format.False
-	case Int:
-		return fmt.Sprintf(format.IntFmt, val.(int64))
-	case Float:
-		x := val.(float64)
-		if math.IsNaN(x) {
-			return format.NaN
-		}
-		return fmt.Sprintf(format.FloatFmt, val.(float64))
-	case String:
-		return fmt.Sprintf(format.StringFmt, val.(string))
-	case Time:
-		t := val.(time.Time)
-		if format.TimeLoc != nil {
-			t = t.In(format.TimeLoc)
-		}
-		return t.Format(format.TimeFmt)
-	}
-
-	return fmt.Sprintf("%v", val)
-}
-
-// -------------------------------------------------------------------------
-// Dumper
-
-// CSVDumper dumps values to a csv writer.
-type CSVDumper struct {
-	Writer     *csv.Writer // The csv.Writer to output the data.
-	OmitHeader bool        // OmitHeader suppresses the header line in the generated CSV.
-}
-
-// Dump dumps the fields from e to d.
-func (d CSVDumper) Dump(e *Extractor, format Format) error {
-	row := make([]string, len(e.Columns))
-	if !d.OmitHeader {
-		for i, field := range e.Columns {
-			row[i] = field.Name
-		}
-		d.Writer.Write(row)
-	}
-	for r := 0; r < e.N; r++ {
-		for col, field := range e.Columns {
-			row[col] = field.Print(format, r)
-		}
-		err := d.Writer.Write(row)
-		if err != nil {
-			return err
-		}
-	}
-	d.Writer.Flush()
-	return d.Writer.Error()
-}
-
-// TabDumper dumps the value to a tabwriter.
-type TabDumper struct {
-	// Writer is the tabwriter to be used.
-	Writer     *tabwriter.Writer
-	OmitHeader bool // OmitHeader suppresses the header line in the generated CSV.
-}
-
-// Dump dumps the fields from e to d. Dump does not call Flush on the
-// underlying tabwriter.
-func (d TabDumper) Dump(e *Extractor, format Format) error {
-	if !d.OmitHeader {
-		ff := "%s"
-		for _, field := range e.Columns {
-			fmt.Fprintf(d.Writer, ff, field.Name)
-			ff = "\t%s"
-		}
-	}
-	fmt.Fprintln(d.Writer)
-	for r := 0; r < e.N; r++ {
-		ff := "%s"
-		for _, field := range e.Columns {
-			fmt.Fprintf(d.Writer, ff, field.Print(format, r))
-			ff = "\t%s"
-		}
-		fmt.Fprintln(d.Writer)
-	}
-
-	return nil
-}
-
-// RVecDumper dumps as a R vectors.
-type RVecDumper struct {
-	Writer io.Writer
-
-	// If Name is nonempty a data frame named Name consisting of all
-	// fields is constructed too.
-	Name string
-}
-
-// Dump dumps the fields from e to d.
-func (d RVecDumper) Dump(e *Extractor, format Format) error {
-	all := ""
-	for f, field := range e.Columns {
-		if _, err := fmt.Fprintf(d.Writer, "%s <- c(", field.Name); err != nil {
-			return err
-		}
-		for r := 0; r < e.N; r++ {
-			s := field.Print(format, r)
-			if r < e.N-1 {
-				if r%10 == 9 {
-					s += ",\n"
-				} else {
-					s += ", "
-				}
-			}
-			if _, err := fmt.Fprintf(d.Writer, "%s", s); err != nil {
-				return err
-			}
-		}
-		if _, err := fmt.Fprintf(d.Writer, ")\n"); err != nil {
-			return err
-		}
-		if f > 0 {
-			all += ", "
-		}
-		all += field.Name
-	}
-
-	if d.Name != "" {
-		if _, err := fmt.Fprintf(d.Writer, "%s <- data.frame(%s)\n", d.Name, all); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 // -------------------------------------------------------------------------
 // Extractor
 
 // Extractor provides access to fields and methods of tabular data.
+// An extractor must be constructed with NewExtractor and can be rebound
+// to new data sets anytime by Bind.
 type Extractor struct {
 	// N is the numer of elements in the currently bound data.
 	N int
 
-	// Columns contains all the columns to extract.
+	// Columns contains all the columns to extract. After
+	// creation of an Extractor Columns may be manipulated, e.g.
+	// setting a custom name for a column or rearanging or dropping
+	// columns.
 	Columns []Column
 
 	som   bool // som is true for slice-of-measurement type data.
@@ -244,6 +71,99 @@ func NewExtractor(data interface{}, columnSpecs ...string) (*Extractor, error) {
 		panic("COS data frame not implemented")
 	}
 	return &Extractor{}, fmt.Errorf("Cannot build Extrator for %s", typ.String())
+}
+
+// Bind (re)binds e to data which must be of the same type as the data used
+// during the construction of e.
+func (e *Extractor) Bind(data interface{}) {
+	typ := reflect.TypeOf(data)
+	if typ != e.typ {
+		panic(fmt.Sprintf("Cannot bind extractor for %v to data of type %v",
+			e.typ, typ))
+	}
+	if e.som {
+		e.bindSOM(data)
+	} else {
+		panic("COS data frame not implemented")
+	}
+}
+
+// -------------------------------------------------------------------------
+// Type and Column
+
+// Type represents the basic type of a column.
+type Type uint
+
+const (
+	NA Type = iota
+	Bool
+	Int
+	Float
+	String
+	Time
+)
+
+// String returns the name of t.
+func (t Type) String() string {
+	return []string{"NA", "Bool", "Int", "Float", "String", "Time"}[t]
+}
+
+// Column represents one column in the export. Columns are created
+// during construction of an Extractor only.
+type Column struct {
+	// Name is the name of the column. It is created based on the
+	// column spec during construction of a new Extractor and may
+	// be changed afterwards.
+	Name string
+
+	typ Type // The type of the column.
+
+	// value returns the i'th value in this column.
+	// For errors or nil pointers nil is returned.
+	value func(i int) interface{}
+
+	access   []step // The steps needed to access the result.
+	unsigned bool   // For Type == Int
+}
+
+// Type returns the type of the column c.
+func (c Column) Type() Type { return c.typ }
+
+// Print the i'th entry of column c with the given format.
+func (c Column) Print(format Format, i int) string {
+	val := c.value(i)
+	if val == nil {
+		return format.NA
+	}
+	switch c.typ {
+	case Bool:
+		if val.(bool) {
+			return format.True
+		}
+		return format.False
+	case Int:
+		return fmt.Sprintf(format.IntFmt, val.(int64))
+	case Float:
+		x := val.(float64)
+		if math.IsNaN(x) {
+			return format.NaN
+		}
+		return fmt.Sprintf(format.FloatFmt, val.(float64))
+	case String:
+		return fmt.Sprintf(format.StringFmt, val.(string))
+	case Time:
+		t := val.(time.Time)
+		if format.TimeLoc != nil {
+			t = t.In(format.TimeLoc)
+		}
+		return t.Format(format.TimeFmt)
+	}
+
+	return fmt.Sprintf("%v", val)
+}
+
+func isTime(x reflect.Type) bool {
+	return x.PkgPath() == "time" && x.Kind() == reflect.Struct && x.Name() == "Time"
 }
 
 // newSOMExtractor sets up an unbound Extractor for a slice-of-measurements
@@ -274,7 +194,7 @@ func newSOMExtractor(data interface{}, colSpecs ...string) (*Extractor, error) {
 
 		field := Column{
 			Name:     name,
-			Type:     rType,
+			typ:      rType,
 			access:   steps,
 			unsigned: unsigned,
 		}
@@ -284,30 +204,15 @@ func newSOMExtractor(data interface{}, colSpecs ...string) (*Extractor, error) {
 	return &ex, nil
 }
 
-// Bind (re)binds e to data which must be of the same type as the data used
-// during the construction of e.
-func (e *Extractor) Bind(data interface{}) {
-	typ := reflect.TypeOf(data)
-	if typ != e.typ {
-		panic(fmt.Sprintf("Cannot bind extractor for %v to data of type %v",
-			e.typ, typ))
-	}
-	if e.som {
-		e.bindSOM(data)
-	} else {
-		panic("COS data frame not implemented")
-	}
-}
-
 // bindSOM is the slice-of-measurements version of Bind.
 func (e *Extractor) bindSOM(data interface{}) {
 	v := reflect.ValueOf(data)
 	e.N = v.Len()
 	for fn, field := range e.Columns {
 		access := field.access
-		typ := field.Type
+		typ := field.Type()
 		unsigned := field.unsigned
-		e.Columns[fn].Value = func(i int) interface{} {
+		e.Columns[fn].value = func(i int) interface{} {
 			return retrieve(v.Index(i), access, e.indir, typ, unsigned)
 		}
 	}

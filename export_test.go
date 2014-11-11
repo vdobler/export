@@ -116,7 +116,7 @@ func TestExtractor(t *testing.T) {
 		if field.Name != name {
 			t.Errorf("Column %d, got name %s, want %s", i, field.Name, name)
 		}
-		ft := field.Type.String()
+		ft := field.typ.String()
 		if ft[0] != name[0] {
 			t.Errorf("Column %d, got type %s, want '%s'", i, ft, name)
 		}
@@ -124,8 +124,8 @@ func TestExtractor(t *testing.T) {
 
 	// Check for proper NA handling.
 	for i := 10; i < 15; i++ {
-		val := extractor.Columns[i].Value(0)
-		na := extractor.Columns[i].Value(1)
+		val := extractor.Columns[i].value(0)
+		na := extractor.Columns[i].value(1)
 		if val == nil {
 			t.Errorf("Column %s unexpected nil", fieldNames[i])
 		}
@@ -137,11 +137,11 @@ func TestExtractor(t *testing.T) {
 	// Check values.
 	for i, s := range ss {
 		// Booleans
-		bfv := extractor.Columns[0].Value(i).(bool)
-		bmv := extractor.Columns[5].Value(i).(bool)
+		bfv := extractor.Columns[0].value(i).(bool)
+		bmv := extractor.Columns[5].value(i).(bool)
 		bemv := s.B
 		if i%2 == 0 {
-			bemv = extractor.Columns[10].Value(i).(bool)
+			bemv = extractor.Columns[10].value(i).(bool)
 		}
 		if bfv != s.B || bmv != s.B || bemv != s.B {
 			t.Errorf("Bool %d: Got field=%t method=%t errmethod=%t, want %t",
@@ -149,11 +149,11 @@ func TestExtractor(t *testing.T) {
 		}
 
 		// Integers
-		ifv := extractor.Columns[1].Value(i).(int64)
-		imv := extractor.Columns[6].Value(i).(int64)
+		ifv := extractor.Columns[1].value(i).(int64)
+		imv := extractor.Columns[6].value(i).(int64)
 		iemv := int64(s.I)
 		if i%2 == 0 {
-			iemv = extractor.Columns[11].Value(i).(int64)
+			iemv = extractor.Columns[11].value(i).(int64)
 		}
 		if ifv != int64(s.I) || imv != int64(s.I) || iemv != int64(s.I) {
 			t.Errorf("Int %d: Got field=%d method=%d errmethod=%d, want %d",
@@ -161,11 +161,11 @@ func TestExtractor(t *testing.T) {
 		}
 
 		// Floats
-		ffv := extractor.Columns[2].Value(i).(float64)
-		fmv := extractor.Columns[7].Value(i).(float64)
+		ffv := extractor.Columns[2].value(i).(float64)
+		fmv := extractor.Columns[7].value(i).(float64)
 		femv := s.F
 		if i%2 == 0 {
-			femv = extractor.Columns[12].Value(i).(float64)
+			femv = extractor.Columns[12].value(i).(float64)
 		}
 		if ffv != s.F || fmv != s.F || femv != s.F {
 			t.Errorf("Float %d: Got field=%g method=%g errmethod=%g, want %g",
@@ -173,11 +173,11 @@ func TestExtractor(t *testing.T) {
 		}
 
 		// Strings
-		sfv := extractor.Columns[3].Value(i).(string)
-		smv := extractor.Columns[8].Value(i).(string)
+		sfv := extractor.Columns[3].value(i).(string)
+		smv := extractor.Columns[8].value(i).(string)
 		semv := s.S
 		if i%2 == 0 {
-			semv = extractor.Columns[13].Value(i).(string)
+			semv = extractor.Columns[13].value(i).(string)
 		}
 		if sfv != s.S || smv != s.S || semv != s.S {
 			t.Errorf("String %d: Got field=%s method=%s errmethod=%s, want %s",
@@ -185,11 +185,11 @@ func TestExtractor(t *testing.T) {
 		}
 
 		// Times
-		tfv := extractor.Columns[4].Value(i).(time.Time)
-		tmv := extractor.Columns[9].Value(i).(time.Time)
+		tfv := extractor.Columns[4].value(i).(time.Time)
+		tmv := extractor.Columns[9].value(i).(time.Time)
 		temv := s.T
 		if i%2 == 0 {
-			temv = extractor.Columns[14].Value(i).(time.Time)
+			temv = extractor.Columns[14].value(i).(time.Time)
 		}
 		if !tfv.Equal(s.T) || !tmv.Equal(s.T) || !temv.Equal(s.T) {
 			t.Errorf("Time %d: Got field=%s method=%s errmethod=%s, want %s",
@@ -205,11 +205,11 @@ func TestAlias(t *testing.T) {
 		t.Fatalf("Unexpected error: %s", err)
 	}
 
-	if g := extractor.Columns[0].Value(0); g.(int64) != 123 {
+	if g := extractor.Columns[0].value(0); g.(int64) != 123 {
 		t.Errorf("N:0, got %v, want 123", g)
 	}
 
-	if g := extractor.Columns[1].Value(0); g.(int64) != 246 {
+	if g := extractor.Columns[1].value(0); g.(int64) != 246 {
 		t.Errorf("N:0, got %v, want 246", g)
 	}
 
@@ -255,7 +255,7 @@ func TestPointerFields(t *testing.T) {
 		t.Fatalf("Got %d elements, want 3", extractor.N)
 	}
 
-	if v := extractor.Columns[0].Value(0); v == nil {
+	if v := extractor.Columns[0].value(0); v == nil {
 		t.Errorf("0: Unexpected nil")
 	} else {
 		g, ok := v.(int64)
@@ -266,11 +266,11 @@ func TestPointerFields(t *testing.T) {
 		}
 	}
 
-	if v := extractor.Columns[0].Value(1); v != nil {
+	if v := extractor.Columns[0].value(1); v != nil {
 		t.Errorf("1: Got %v, want nil", v)
 	}
 
-	if v := extractor.Columns[0].Value(2); v == nil {
+	if v := extractor.Columns[0].value(2); v == nil {
 		t.Errorf("2: Unexpected nil")
 	} else {
 		g, ok := v.(int64)
@@ -504,8 +504,8 @@ func TestRVecExtractor(t *testing.T) {
 	}
 
 	d := RVecDumper{
-		Writer: os.Stdout,
-		Name:   "body.data",
+		Writer:    os.Stdout,
+		DataFrame: "body.data",
 	}
 
 	d.Dump(extractor, RFormat)
