@@ -56,14 +56,20 @@
 //   - bool
 //   - uint8, uint16, ...,  int64
 //   - float32 and float64
+//   - complex64 and complex128
 //   - string
-//   - time.Time
+//   - time.Time and time.Duration
 //
-// TODO: Complex values and byte slices.
+// This package handles floats and int as 64bit values and complex values
+// as complex128. Thus an uint64 may overflow without notice.
 //
-// This package handles floats and int as 64bit values. Thus an uint64
-// may overflow without notice.
+// Dumping
 //
+// Dumping the data bound to an Extractor is done via a Dumper. This package
+// provides three types: CSVDumper, TabDumper and RVecDumper. It is the
+// dumpers responsibility to iterate over the rows and columns of an Extractor
+// and generating values via the the Columns Print method which takes a
+// Formater which does the actual string generation.
 package export
 
 import (

@@ -16,10 +16,13 @@ type Formater interface {
 	Bool(b bool) string
 	Int(i int64) string
 	Float(f float64) string
+	Complex(c complex128) string
 	String(s string) string
 	Time(t time.Time) string
 	Duration(d time.Duration) string
-	Complex(c complex128) string
+
+	// NA is used to produce missing values for nil pointers or
+	// method invocations which returned an error.
 	NA() string
 }
 
@@ -93,7 +96,8 @@ func (f Format) NA() string {
 	return f.NARep
 }
 
-// DefaultFormat contains default formating options.
+// DefaultFormat contains default formating options which produce
+// pleasant human readable output.
 var DefaultFormat = Format{
 	TrueRep:     "true",
 	FalseRep:    "false",
@@ -110,7 +114,7 @@ var DefaultFormat = Format{
 }
 
 // PreciseFormat contains formatin options which tries to preserve
-// the original data very well.
+// the original data pretty well.
 var PreciseFormat = Format{
 	TrueRep:     "true",
 	FalseRep:    "false",
@@ -136,7 +140,7 @@ var RFormat = Format{
 	StringFmt:   "%q",
 	TimeFmt:     `as.POSIXct("2006-01-02 15:04:05")`,
 	DurationFmt: "%d",
-	TimeLoc:     time.Local,
+	TimeLoc:     time.Local, // I have no idea how timezones work in R. Sorry.
 	NARep:       "NA",
 	NaNRep:      "NA",
 	PInfRep:     "Inf",

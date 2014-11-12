@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+// This file contains test code which requires R and the ggplot2 library
+// to be installed. The -R turns on this test and -Rbin can be used to
+// provide the path to the R binary.
+
 package export
 
 import (

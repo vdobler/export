@@ -19,11 +19,11 @@ type Dumper interface {
 
 // CSVDumper dumps values to a csv writer.
 type CSVDumper struct {
-	Writer     *csv.Writer // The csv.Writer to output the data.
+	Writer     *csv.Writer // Writer is the csv writer to output the data.
 	OmitHeader bool        // OmitHeader suppresses the header line in the generated CSV.
 }
 
-// Dump dumps the fields from e to d.
+// Dump implements the Dump method of a Dumper.
 func (d CSVDumper) Dump(e *Extractor, format Format) error {
 	row := make([]string, len(e.Columns))
 	if !d.OmitHeader {
@@ -47,13 +47,12 @@ func (d CSVDumper) Dump(e *Extractor, format Format) error {
 
 // TabDumper dumps the value to a tabwriter.
 type TabDumper struct {
-	// Writer is the tabwriter to be used.
-	Writer     *tabwriter.Writer
-	OmitHeader bool // OmitHeader suppresses the header line in the generated CSV.
+	Writer     *tabwriter.Writer // Writer is the tabwriter to output the data.
+	OmitHeader bool              // OmitHeader suppresses the header line in the generated CSV.
 }
 
-// Dump dumps the fields from e to d. Dump does not call Flush on the
-// underlying tabwriter.
+// Dump implements the Dump method of a Dumper.
+// Dump does not call Flush on the underlying tabwriter.
 func (d TabDumper) Dump(e *Extractor, format Format) error {
 	if !d.OmitHeader {
 		ff := "%s"
@@ -77,7 +76,7 @@ func (d TabDumper) Dump(e *Extractor, format Format) error {
 
 // RVecDumper dumps as a R vectors, optionaly combined into a data frame.
 type RVecDumper struct {
-	Writer io.Writer
+	Writer io.Writer // Writer is the writer to output the data.
 
 	// DataFrame is the name of a R data frame to construct from the
 	// individual column vectors. A empty value suppresses the generation
@@ -85,7 +84,9 @@ type RVecDumper struct {
 	DataFrame string
 }
 
-// Dump dumps the fields from e to d.
+// Dump implements the Dump method of a Dumper.
+// The given format must produce suitabel literals for the R values if the
+// dumped data shall be processed as R code; RFormat is suitable.
 func (d RVecDumper) Dump(e *Extractor, format Format) error {
 	all := ""
 	for f, field := range e.Columns {
