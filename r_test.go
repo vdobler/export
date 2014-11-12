@@ -12,6 +12,7 @@ import (
 )
 
 var doR = flag.Bool("R", false, "perform plotting with R")
+var rBinary = flag.String("Rbin", "/usr/bin/R", "path to R binary")
 
 type Diamond struct {
 	Carat   float32
@@ -546,8 +547,8 @@ func TestRPlot(t *testing.T) {
 		t.Fatalf("Unexpected error: %s", err)
 	}
 
-	args := []string{"--vanilla", "--interactive"}
-	cmd := exec.Command("/usr/bin/R", args...)
+	args := []string{"--vanilla", "--interactive", "-"} // The "-" works well for R and Rscript.
+	cmd := exec.Command(*rBinary, args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
@@ -562,15 +563,15 @@ func TestRPlot(t *testing.T) {
 		fmt.Fprintf(stdin, `
 library(ggplot2)
 p <- ggplot(my.diamonds, aes(Carat, Price, color=Cut, size=Clarity.String))
-p + geom_point()
-Sys.sleep(2)
+p + geom_point() + ggtitle("Diamonds")
+Sys.sleep(3)
 `)
 		stdin.Close()
 	}()
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("Unexpected error: %s", err)
+		t.Fatalf("Unexpected error: %v\nWhole output:\n%s\nTry setting -Rbin.",
+			err, string(out))
 	}
-	fmt.Printf("%s", string(out))
 }

@@ -68,7 +68,6 @@ package export
 
 import (
 	"fmt"
-	"math"
 	"reflect"
 	"strings"
 	"time"
@@ -143,13 +142,16 @@ const (
 	Bool
 	Int
 	Float
+	Complex
 	String
 	Time
+	Duration
 )
 
 // String returns the name of t.
 func (t Type) String() string {
-	return []string{"NA", "Bool", "Int", "Float", "String", "Time"}[t]
+	return []string{"NA", "Bool", "Int", "Float", "Complex", "String",
+		"Time", "Duration"}[t]
 }
 
 // Column represents one column in the export. Columns are created
@@ -174,40 +176,29 @@ type Column struct {
 func (c Column) Type() Type { return c.typ }
 
 // Print the i'th entry of column c with the given format.
-func (c Column) Print(format Format, i int) string {
+func (c Column) Print(f Formater, i int) string {
 	val := c.value(i)
 	if val == nil {
-		return format.NA
+		return f.NA()
 	}
 	switch c.typ {
 	case Bool:
-		if val.(bool) {
-			return format.True
-		}
-		return format.False
+		return f.Bool(val.(bool))
 	case Int:
-		return fmt.Sprintf(format.IntFmt, val.(int64))
+		return f.Int(val.(int64))
 	case Float:
-		x := val.(float64)
-		if math.IsNaN(x) {
-			return format.NaN
-		}
-		return fmt.Sprintf(format.FloatFmt, val.(float64))
+		return f.Float(val.(float64))
+	case Complex:
+		return f.Complex(val.(complex128))
 	case String:
-		return fmt.Sprintf(format.StringFmt, val.(string))
+		return f.String(val.(string))
 	case Time:
-		t := val.(time.Time)
-		if format.TimeLoc != nil {
-			t = t.In(format.TimeLoc)
-		}
-		return t.Format(format.TimeFmt)
+		return f.Time(val.(time.Time))
+	case Duration:
+		return f.Duration(val.(time.Duration))
 	}
 
 	return fmt.Sprintf("%v", val)
-}
-
-func isTime(x reflect.Type) bool {
-	return x.PkgPath() == "time" && x.Kind() == reflect.Struct && x.Name() == "Time"
 }
 
 // newSOMExtractor sets up an unbound Extractor for a slice-of-measurements
@@ -271,17 +262,29 @@ func superType(t reflect.Type) Type {
 		return Bool
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if isDuration(t) {
+			return Duration
+		}
 		return Int
 	case reflect.String:
 		return String
 	case reflect.Float32, reflect.Float64:
 		return Float
+	case reflect.Complex64, reflect.Complex128:
+		return Complex
 	case reflect.Struct:
 		if isTime(t) {
 			return Time
 		}
 	}
 	return NA
+}
+
+func isTime(x reflect.Type) bool {
+	return x.PkgPath() == "time" && x.Kind() == reflect.Struct && x.Name() == "Time"
+}
+func isDuration(x reflect.Type) bool {
+	return x.PkgPath() == "time" && x.Kind() == reflect.Int64 && x.Name() == "Duration"
 }
 
 var (
@@ -457,7 +460,7 @@ func access(v reflect.Value, steps []step) (reflect.Value, error) {
 }
 
 // retrieve decends v according to steps and returns the last value
-// either as bool, int64, float64, string or time.Time.
+// either as bool, int64, float64, complex128, string, time.Time or time.Duration
 // indir is the primary number of indirections to take.
 // If no value was found due to nil pointers or method failures
 // nil is returned.
@@ -484,10 +487,14 @@ func retrieve(v reflect.Value, steps []step, indir int, typ Type, unsigned bool)
 		}
 	case Float:
 		return res.Float()
+	case Complex:
+		return res.Complex()
 	case String:
 		return res.String()
 	case Time:
 		return res.Interface()
+	case Duration:
+		return time.Duration(res.Int())
 	}
 	return nil
 }

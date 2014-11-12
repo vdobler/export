@@ -5,15 +5,14 @@
 package export
 
 import (
+	"bytes"
 	"encoding/csv"
 	"errors"
 	"fmt"
 	"math"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
-	"text/tabwriter"
 	"time"
 )
 
@@ -27,18 +26,22 @@ type S struct {
 	T time.Time
 	E error
 	N Named
+	D time.Duration
+	C complex64
 }
 
 type Named uint16
 type Named32 uint32
 
-func (s S) BM() bool      { return s.B }
-func (s S) IM() int       { return s.I }
-func (s S) FM() float64   { return s.F }
-func (s S) SM() string    { return s.S }
-func (s S) TM() time.Time { return s.T }
-func (s S) EM() error     { return s.E }
-func (s S) NM() Named32   { return Named32(s.N * 2) }
+func (s S) BM() bool          { return s.B }
+func (s S) IM() int           { return s.I }
+func (s S) FM() float64       { return s.F }
+func (s S) SM() string        { return s.S }
+func (s S) TM() time.Time     { return s.T }
+func (s S) EM() error         { return s.E }
+func (s S) NM() Named32       { return Named32(s.N * 2) }
+func (s S) DM() time.Duration { return s.D }
+func (s S) CM() complex64     { return s.C }
 
 func (s S) BME() (bool, error) {
 	if s.B {
@@ -75,6 +78,20 @@ func (s S) TME() (time.Time, error) {
 	return time.Time{}, someError
 }
 
+func (s S) DME() (time.Duration, error) {
+	if s.D > time.Second {
+		return s.D, nil
+	}
+	return 0, someError
+}
+
+func (s S) CME() (complex64, error) {
+	if real(s.C) > 2 {
+		return s.C, nil
+	}
+	return 0, someError
+}
+
 func (s S) EME() (error, error) {
 	return s.E, someError
 }
@@ -92,14 +109,17 @@ var time2 = time.Date(2000, 1, 2, 3, 20, 30, 0, time.UTC)
 var time3 = time.Date(2009, 12, 28, 9, 45, 0, 0, time.UTC)
 
 var ss = []S{
-	S{true, 23, 45.67, "Hello World!", time1, nil, 123},
-	S{false, 9, 8.76, "Short", time2, nil, 456},
+	S{true, 23, 45.67, "Hello World!", time1, nil, 123,
+		time.Duration(3 * time.Second), 3.1 + 4.2i},
+	S{false, 9, 8.76, "Short", time2, nil, 456,
+		time.Duration(9 * time.Millisecond), 9i},
 }
 
 func TestExtractor(t *testing.T) {
-	fieldNames := []string{"B", "I", "F", "S", "T",
-		"BM()", "IM()", "FM()", "SM()", "TM()",
-		"BME()", "IME()", "FME()", "SME()", "TME()",
+	fieldNames := []string{"B", "I", "F", "S", "T", // 0-4
+		"BM()", "IM()", "FM()", "SM()", "TM()", // 5-9
+		"BME()", "IME()", "FME()", "SME()", "TME()", // 10-14
+		"D", "C", "DM()", "CM()", "DME()", "CME()", // 15-20
 	}
 	extractor, err := NewExtractor(ss, fieldNames...)
 
@@ -195,6 +215,32 @@ func TestExtractor(t *testing.T) {
 			t.Errorf("Time %d: Got field=%s method=%s errmethod=%s, want %s",
 				i, tfv, tmv, temv, s.T)
 		}
+
+		// Durations
+		dfv := extractor.Columns[15].value(i).(time.Duration)
+		dmv := extractor.Columns[17].value(i).(time.Duration)
+		demv := s.D
+		if i%2 == 0 {
+			demv = extractor.Columns[19].value(i).(time.Duration)
+		}
+		if dfv != s.D || dmv != s.D || demv != s.D {
+			t.Errorf("Duration %d: Got field=%s method=%s errmethod=%s, want %s",
+				i, dfv, dmv, demv, s.D)
+		}
+
+		// Complex
+		cfv := extractor.Columns[16].value(i).(complex128)
+		cmv := extractor.Columns[18].value(i).(complex128)
+		cemv := complex128(s.C)
+		if i%2 == 0 {
+			cemv = extractor.Columns[20].value(i).(complex128)
+		}
+		want := complex128(s.C)
+		if cfv != want || cmv != want || cemv != want {
+			t.Errorf("Complex %d: Got field=%s method=%s errmethod=%s, want %s",
+				i, cfv, cmv, cemv, want)
+		}
+
 	}
 
 }
@@ -285,20 +331,29 @@ func TestPointerFields(t *testing.T) {
 
 func TestSliceOfPointers(t *testing.T) {
 	data := []*S{
-		&S{true, 23, 45.67, "Hello World!", time1, nil, 123},
-		&S{false, 9, 8.76, "Short", time2, nil, 456},
+		&S{true, 23, 45.67, "Hello World!", time1, nil, 123,
+			time.Duration(3 * time.Second), 3.2 + 4.4i},
+		&S{false, 9, 8.76, "Short", time2, nil, 456,
+			time.Duration(9 * time.Millisecond), 9i},
 		nil,
 	}
-
-	extractor, err := NewExtractor(data, "B", "I", "F", "S", "T")
+	extractor, err := NewExtractor(data, "B", "I", "F", "S", "T", "D", "C")
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
 
-	w := new(tabwriter.Writer)
-	w.Init(os.Stdout, 1, 8, 1, ' ', 0)
-	TabDumper{Writer: w}.Dump(extractor, RFormat)
-	w.Flush()
+	want := `B,I,F,S,T,D,C
+true,23,45.67,Hello World!,2000-01-02T16:20:30,3s,(3.2+4.4i)
+false,9,8.76,Short,2000-01-02T04:20:30,9ms,(0+9i)
+,,,,,,
+`
+
+	buf := &bytes.Buffer{}
+	CSVDumper{Writer: csv.NewWriter(buf)}.Dump(extractor, DefaultFormat)
+	got := buf.String()
+	if got != want {
+		t.Errorf("Got:\n%s\nWant:\n%s\n%d %d", got, want, len(got), len(want))
+	}
 }
 
 type T struct {
@@ -473,40 +528,66 @@ func TestAccessRetrieve(t *testing.T) {
 // -------------------------------------------------------------------------
 
 var table = []S{
-	S{true, 12, 3.14149, "Hello", time1, nil, 123},
-	S{true, 14, 2.71828, "World", time2, nil, 456},
-	S{false, 14, math.NaN(), "Go", time1, nil, 789},
-	S{false, 16, 6.02214e23, "A Lot", time3, nil, 246},
+	S{true, 12, 3.14149, "Hello", time1, nil, 123,
+		time.Duration(3 * time.Second), 3.1 + 4.2i},
+	S{true, 14, 2.71828, "World", time2, nil, 456,
+		time.Duration(9 * time.Millisecond), 9i},
+	S{false, 14, math.NaN(), "Go", time1, nil, 789, 0, 0},
+	S{false, 16, 6.02214e23, "A Lot", time3, nil, 246,
+		time.Duration(500 * time.Minute),
+		complex64(complex(math.Inf(-1), 7))},
 }
 
-func TestCSVExtractor(t *testing.T) {
-	extractor, err := NewExtractor(table, "B", "I", "F", "S", "T")
+func TestCSVDumper(t *testing.T) {
+	extractor, err := NewExtractor(table, "B", "I", "F", "S", "T", "D", "C")
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
 
+	want := `B,I,F,S,T,D,C
+true,12,3.141,Hello,2000-01-02T16:20:30,3s,(3.1+4.2i)
+true,14,2.718,World,2000-01-02T04:20:30,9ms,(0+9i)
+false,14,,Go,2000-01-02T16:20:30,0,(0+0i)
+false,16,6.022e+23,A Lot,2009-12-28T10:45:00,8h20m0s,+∞
+`
+
+	buf := &bytes.Buffer{}
 	d := CSVDumper{
-		Writer:     csv.NewWriter(os.Stdout),
+		Writer:     csv.NewWriter(buf),
 		OmitHeader: false,
 	}
-
 	d.Dump(extractor, DefaultFormat)
-	w := new(tabwriter.Writer)
-	w.Init(os.Stdout, 1, 8, 1, ' ', 0)
-	TabDumper{Writer: w}.Dump(extractor, RFormat)
-	w.Flush()
+	got := buf.String()
+	if got != want {
+		t.Errorf("Got:\n%s\nWant:\n%s", got, want)
+	}
 }
 
-func TestRVecExtractor(t *testing.T) {
-	extractor, err := NewExtractor(table, "B", "I", "F", "S", "T")
+func TestRVecDumper(t *testing.T) {
+	extractor, err := NewExtractor(table, "B", "I", "F", "S", "T", "D", "C")
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
 
+	want := `B <- c(TRUE, TRUE, FALSE, FALSE)
+I <- c(12, 14, 14, 16)
+F <- c(3.14149, 2.71828, NA, 6.02214e+23)
+S <- c("Hello", "World", "Go", "A Lot")
+T <- c(as.POSIXct("2000-01-02 16:20:30"), as.POSIXct("2000-01-02 04:20:30"), as.POSIXct("2000-01-02 16:20:30"), as.POSIXct("2009-12-28 10:45:00"))
+D <- c(3000000000, 9000000, 0, 30000000000000)
+C <- c((3.0999999+4.19999981i), (0+9i), (0+0i), Inf)
+body.data <- data.frame(B, I, F, S, T, D, C)
+`
+
+	buf := &bytes.Buffer{}
 	d := RVecDumper{
-		Writer:    os.Stdout,
+		Writer:    buf,
 		DataFrame: "body.data",
 	}
-
 	d.Dump(extractor, RFormat)
+	got := buf.String()
+
+	if got != want {
+		t.Errorf("Got:\n%s\nWant:\n%s", got, want)
+	}
 }
