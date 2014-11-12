@@ -5,18 +5,62 @@
 // Package export provides tools to dump tabulated data.
 //
 // Export allows to dump tabular data in different output formats.
-// The main type is Exporter which determines which data is output and in
-// which order. An Exporter is constructed from (almost) any slice type
+// The main type is Extractor which determines which data is output and in
+// which order. An Extractor is constructed from (almost) any slice type
 // and may access nested fields and/or methods of the slice elements.
 //
+// Example
 //
+// Given a struct type S with a method M and a slice of S data
 //
-// Export can export the following Go types:
+//     type S struct {
+//         A int
+//         B string
+//         C struct{T time.Time}
+//     }
+//
+//     func (s S) M() float64 { return float64(s.A)/2 }
+//
+//     data := []S{
+//         {4, "Hello"},
+//         {5, "World!"},
+//     }
+//
+// an Extractor ex for data could be constructed like
+//
+//     ex, _ := NewExtractor(data, "B", "M()", "A", "C.T", "C.T.Day()")
+//
+// This Extractor can be used to dump data in CSV format like this:
+//
+//     csvdumper := CSVDumper{Writer: csv.NewWriter(os.Stdout)}
+//     csvdumper.Dump(ex, DefaultFormat)
+//
+// Column Specifiers
+//
+// A columns specifier during construction of an Extractor determines which
+// field, method, nested field, method on nested field, and so on shall be
+// exported:
+//   - Only exported fields can be exported.
+//   - Accessing a nested field (in the example T) inside a field (C in the
+//     example) is written as T.C
+//   - Methods require "()" in the columne specifier (here "M()").
+//   - Methods may not take arguments.
+//   - Only methods returnig one value or a (value, error) pair may
+//     be used.
+//   - Pointers are dereferenced automatically.
+//   - Nil Pointers and method calls returning a non-nil error result in
+//     a NA value for this field.
+//
+// The final field (or the type returned by a final method call) must be
+// one of:
 //   - bool
 //   - uint8, uint16, ...,  int64
 //   - float32 and float64
 //   - string
 //   - time.Time
+//
+// TODO: Complex values and byte slices.
+//
 // This package handles floats and int as 64bit values. Thus an uint64
 // may overflow without notice.
 //

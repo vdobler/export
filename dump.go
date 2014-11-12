@@ -75,7 +75,7 @@ func (d TabDumper) Dump(e *Extractor, format Format) error {
 	return nil
 }
 
-// RVecDumper dumps as a R vectors.
+// RVecDumper dumps as a R vectors, optionaly combined into a data frame.
 type RVecDumper struct {
 	Writer io.Writer
 

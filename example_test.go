@@ -54,7 +54,8 @@ func Example() {
 	exp, err := NewExtractor(data,
 		"Flt", "Str", "IntP", // Accessing of fields and pointer fields
 		"Method1()", "Method2()", // Accessing results of methods.
-		"Other.Start", "OtherP.Unix()") // Accessing nested elements.
+		"Other.Start", "OtherP.Unix()", // Accessing nested elements.
+		"Other.Start.Day()") // Accessing method on nested elements.
 	if err != nil {
 		panic(err.Error())
 	}
@@ -62,13 +63,15 @@ func Example() {
 	w := new(tabwriter.Writer)
 	w.Init(os.Stdout, 1, 8, 1, ' ', 0)
 	tab := TabDumper{Writer: w}
-	tab.Dump(exp, DefaultFormat)
+	format := DefaultFormat
+	format.TimeLoc = nil // Clear location to output in original (UTC) location.
+	tab.Dump(exp, format)
 	w.Flush()
 
 	// Output:
-	// Flt  Str   IntP Method1 Method2 Other.Start         OtherP.Unix
-	// 3.14 Hello 8    3       false   2009-12-28T09:45:00 1418428799
-	// 2.72 Go         3       false   2014-12-13T00:59:59 4070908860
-	// 1.41       9    1               2099-01-01T01:01:00
+	// Flt  Str   IntP Method1 Method2 Other.Start         OtherP.Unix Other.Start.Day
+	// 3.14 Hello 8    3       false   2009-12-28T08:45:00 1418428799  28
+	// 2.72 Go         3       false   2014-12-12T23:59:59 4070908860  12
+	// 1.41       9    1               2099-01-01T00:01:00             1
 
 }
